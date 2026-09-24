@@ -6,9 +6,12 @@ cada tela, ele fica centralizado aqui.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from PySide6.QtWidgets import QApplication, QCheckBox, QMessageBox, QProgressDialog, QWidget
 
 from atualizacao import BaixadorAtualizacao, abrir_instalador
+from db.lock import InfoLock
 
 
 def confirmar_exclusao(parent: QWidget, rotulo: str, tipo: str = "registro") -> bool:
@@ -25,6 +28,33 @@ def confirmar_exclusao(parent: QWidget, rotulo: str, tipo: str = "registro") -> 
         f'Excluir {tipo} "{rotulo}"? Essa ação não pode ser desfeita.',
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.No,  # o botao "Nao" comeca selecionado, pra um Enter acidental nao excluir nada
+    )
+    return resposta == QMessageBox.Yes
+
+
+def confirmar_abrir_banco_em_uso(parent: QWidget, info: InfoLock) -> bool:
+    """Avisa que este banco parece estar aberto em outra sessao (mesma
+    trava .lock ainda "viva", ver db/lock.py) e pergunta se quer abrir
+    mesmo assim.
+
+    Devolve True se o usuario confirmou que quer abrir mesmo assim, False
+    se preferiu cancelar."""
+    try:
+        desde = datetime.fromisoformat(info.aberto_em).astimezone().strftime("%d/%m %H:%M")
+    except ValueError:
+        desde = "algum momento recente"
+
+    resposta = QMessageBox.question(
+        parent,
+        "Banco em uso",
+        (
+            f'Este banco parece estar aberto no computador "{info.maquina}" '
+            f'(usuário "{info.usuario_os}") desde {desde}.\n\n'
+            "Abrir mesmo assim pode causar conflitos se as duas pessoas "
+            "editarem ao mesmo tempo. Deseja continuar mesmo assim?"
+        ),
+        QMessageBox.Yes | QMessageBox.No,
+        QMessageBox.No,  # o botao "Nao" comeca selecionado, pra um Enter acidental nao abrir mesmo assim
     )
     return resposta == QMessageBox.Yes
 

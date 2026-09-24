@@ -28,9 +28,14 @@ from PySide6.QtWidgets import QApplication, QDialog
 
 from atualizacao import VerificadorAtualizacao
 from config import app_config
-from db import connection
+from db import connection, lock
 from ui import primeiro_uso
-from ui.dialogs import baixar_e_instalar_atualizacao, mostrar_erro, perguntar_atualizacao
+from ui.dialogs import (
+    baixar_e_instalar_atualizacao,
+    confirmar_abrir_banco_em_uso,
+    mostrar_erro,
+    perguntar_atualizacao,
+)
 from ui.launcher_dialog import MODO_NOVO, LauncherDialog
 from ui.login_dialog import LoginDialog
 from ui.main_window import MainWindow
@@ -60,6 +65,17 @@ def _escolher_e_abrir_banco():
             continue  # volta pra tela inicial e deixa tentar de novo
 
         app_config.registrar_recente(caminho)
+
+        # Avisa se outra sessao parece estar com esse banco aberto agora
+        # (ver db/lock.py) -- so um aviso de "melhor esforco", nao impede
+        # nada se o usuario decidir continuar mesmo assim.
+        info_lock = lock.adquirir(caminho)
+        if info_lock is not None:
+            if not confirmar_abrir_banco_em_uso(None, info_lock):
+                conn.close()
+                continue
+            lock.adquirir(caminho, forcar=True)
+
         return conn, caminho, eh_novo
 
 
@@ -117,6 +133,7 @@ def main() -> int:
         login = LoginDialog(conn)
         if login.exec() != QDialog.Accepted:
             conn.close()
+            lock.liberar(caminho)
             continue  # usuario cancelou o login -- volta pra tela inicial
 
         janela = MainWindow(conn, login.usuario_logado, caminho)
@@ -135,6 +152,7 @@ def main() -> int:
         app.exec()
 
         conn.close()
+        lock.liberar(caminho)
         if not estado["trocar_banco"]:
             return 0  # janela principal foi fechada normalmente -- encerra o programa
 

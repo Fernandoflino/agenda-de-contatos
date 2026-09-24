@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 
 from atualizacao import VerificadorAtualizacao
 from config import app_config
-from db import auth, settings
+from db import auth, lock, settings
 from db.schema import PESSOAS
 from db.tables import get_table_order
 from ui.dashboard_view import DashboardView
@@ -70,6 +70,14 @@ class MainWindow(QMainWindow):
         self._montar_janela()
         self._atualizar_identidade()
         self._atualizar_navegacao()
+
+        # Mantem a trava cooperativa do banco (db/lock.py) "viva" enquanto
+        # esta janela estiver aberta -- sem isso, ela seria considerada
+        # abandonada depois de LIMITE_INATIVIDADE e outra maquina poderia
+        # assumir o banco sem aviso nenhum.
+        self._temporizador_lock = QTimer(self)
+        self._temporizador_lock.timeout.connect(lambda: lock.atualizar_atividade(self.caminho_banco))
+        self._temporizador_lock.start(60_000)
 
     # -- montagem ----------------------------------------------------------
 
