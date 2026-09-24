@@ -21,6 +21,7 @@ import sqlite3
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QColorDialog,
     QComboBox,
     QDialog,
@@ -31,6 +32,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QTabWidget,
     QVBoxLayout,
@@ -258,10 +261,11 @@ class SettingsDialog(QDialog):
         layout.setSpacing(12)
 
         explicacao = QLabel(
-            "Escolha qual campo extra aparece, ao lado do nome, na lista de "
-            "registros dessa tabela. O painel de detalhes (ao clicar num "
-            "registro) já mostra todos os outros campos preenchidos, então "
-            "só é preciso escolher esse um aqui."
+            "Escolha quais campos extras aparecem, ao lado do nome, na lista "
+            "de registros dessa tabela -- cada um vira uma coluna, na ordem "
+            "escolhida (arraste na lista da direita pra reordenar). O painel "
+            "de detalhes (ao clicar num registro) já mostra todos os outros "
+            "campos preenchidos, então só é preciso escolher esses aqui."
         )
         explicacao.setProperty("papel", "subtitulo")
         explicacao.setWordWrap(True)
@@ -276,18 +280,60 @@ class SettingsDialog(QDialog):
         linha_tabela.addWidget(self.combo_tabela_resumo, stretch=1)
         layout.addLayout(linha_tabela)
 
-        linha_campo = QHBoxLayout()
-        linha_campo.setSpacing(8)
-        linha_campo.addWidget(QLabel("Campo extra na lista:"))
-        self.combo_campo_extra = QComboBox()
-        linha_campo.addWidget(self.combo_campo_extra, stretch=1)
-        layout.addLayout(linha_campo)
+        linha_listas = QHBoxLayout()
+        linha_listas.setSpacing(8)
 
-        layout.addStretch()
+        coluna_disponiveis = QVBoxLayout()
+        coluna_disponiveis.addWidget(QLabel("Campos disponíveis:"))
+        self.lista_campos_disponiveis = QListWidget()
+        self.lista_campos_disponiveis.itemDoubleClicked.connect(self._adicionar_campo_escolhido)
+        coluna_disponiveis.addWidget(self.lista_campos_disponiveis)
+        linha_listas.addLayout(coluna_disponiveis, stretch=1)
+
+        coluna_botoes = QVBoxLayout()
+        coluna_botoes.setSpacing(8)
+        coluna_botoes.addStretch()
+        botao_adicionar = QPushButton("Adicionar →")
+        botao_adicionar.clicked.connect(self._adicionar_campo_escolhido)
+        coluna_botoes.addWidget(botao_adicionar)
+        botao_remover = QPushButton("← Remover")
+        marcar_variante(botao_remover, "secundario")
+        botao_remover.clicked.connect(self._remover_campo_escolhido)
+        coluna_botoes.addWidget(botao_remover)
+        coluna_botoes.addStretch()
+        linha_listas.addLayout(coluna_botoes)
+
+        coluna_escolhidos = QVBoxLayout()
+        coluna_escolhidos.addWidget(QLabel("Campos escolhidos (nesta ordem):"))
+        self.lista_campos_escolhidos = QListWidget()
+        self.lista_campos_escolhidos.setDragDropMode(QAbstractItemView.InternalMove)
+        self.lista_campos_escolhidos.itemDoubleClicked.connect(self._remover_campo_escolhido)
+        coluna_escolhidos.addWidget(self.lista_campos_escolhidos)
+        linha_listas.addLayout(coluna_escolhidos, stretch=1)
+
+        layout.addLayout(linha_listas, stretch=1)
 
         if self.combo_tabela_resumo.count():
             self._recarregar_campos_resumo(self.combo_tabela_resumo.currentText())
         return pagina
+
+    def _adicionar_campo_escolhido(self) -> None:
+        item = self.lista_campos_disponiveis.currentItem()
+        if item is None:
+            return
+        novo = QListWidgetItem(item.text())
+        novo.setData(Qt.UserRole, item.data(Qt.UserRole))
+        self.lista_campos_escolhidos.addItem(novo)
+        self.lista_campos_disponiveis.takeItem(self.lista_campos_disponiveis.row(item))
+
+    def _remover_campo_escolhido(self) -> None:
+        item = self.lista_campos_escolhidos.currentItem()
+        if item is None:
+            return
+        novo = QListWidgetItem(item.text())
+        novo.setData(Qt.UserRole, item.data(Qt.UserRole))
+        self.lista_campos_disponiveis.addItem(novo)
+        self.lista_campos_escolhidos.takeItem(self.lista_campos_escolhidos.row(item))
 
     def _opcoes_campo_extra(self, colunas: list[str]) -> list[tuple[str, str]]:
         """As opcoes do combo "Campo extra na lista": qualquer coluna de
@@ -302,15 +348,17 @@ class SettingsDialog(QDialog):
             opcoes.append((field_types.rotulo_amigavel(coluna), coluna))
         return opcoes
 
-    def _campo_extra_atual(self, layout_resumo: list[list[str]]) -> str | None:
-        """O campo extra configurado ATE AGORA pra essa tabela -- olha so o
-        PRIMEIRO campo do layout salvo (formato antigo, de quando esta tela
-        deixava configurar varios campos em varias linhas), convertendo os
-        campos "brutos" de empresa pro mesmo sentinela usado hoje."""
+    def _campos_extra_atuais(self, layout_resumo: list[list[str]]) -> list[str]:
+        """Os campos extras configurados ATE AGORA pra essa tabela, na ordem
+        em que foram salvos, convertendo os campos "brutos" de empresa pro
+        mesmo sentinela usado hoje (sem repetir a empresa mais de uma vez)."""
+        campos: list[str] = []
         for linha in layout_resumo:
             for campo in linha:
-                return _SENTINELA_EMPRESA if campo in _CAMPOS_EMPRESA_BRUTOS else campo
-        return None
+                chave = _SENTINELA_EMPRESA if campo in _CAMPOS_EMPRESA_BRUTOS else campo
+                if chave not in campos:
+                    campos.append(chave)
+        return campos
 
     def _recarregar_campos_resumo(self, tabela: str) -> None:
         if not tabela:
@@ -318,16 +366,27 @@ class SettingsDialog(QDialog):
         colunas = get_column_order(self.conn, tabela)
         padrao = settings.sugerir_layout_resumo(colunas)
         layout_atual = settings.obter_campos_resumo(self.conn, tabela, padrao)
-        campo_atual = self._campo_extra_atual(layout_atual)
+        campos_atuais = self._campos_extra_atuais(layout_atual)
 
-        self.combo_campo_extra.blockSignals(True)
-        self.combo_campo_extra.clear()
-        self.combo_campo_extra.addItem("(nenhum)", None)
+        rotulos_por_campo = {campo: rotulo for rotulo, campo in self._opcoes_campo_extra(colunas)}
+
+        self.lista_campos_escolhidos.clear()
+        self.lista_campos_disponiveis.clear()
+
+        for campo in campos_atuais:
+            rotulo = rotulos_por_campo.pop(campo, None)
+            if rotulo is None:
+                continue
+            item = QListWidgetItem(rotulo)
+            item.setData(Qt.UserRole, campo)
+            self.lista_campos_escolhidos.addItem(item)
+
         for rotulo, campo in self._opcoes_campo_extra(colunas):
-            self.combo_campo_extra.addItem(rotulo, campo)
-        indice = self.combo_campo_extra.findData(campo_atual)
-        self.combo_campo_extra.setCurrentIndex(indice if indice >= 0 else 0)
-        self.combo_campo_extra.blockSignals(False)
+            if campo in campos_atuais:
+                continue
+            item = QListWidgetItem(rotulo)
+            item.setData(Qt.UserRole, campo)
+            self.lista_campos_disponiveis.addItem(item)
 
     # -- salvar --------------------------------------------------------------
 
@@ -344,12 +403,17 @@ class SettingsDialog(QDialog):
 
         tabela = self.combo_tabela_resumo.currentText()
         if tabela:
-            campo_extra = self.combo_campo_extra.currentData()
+            campos_extra = [
+                self.lista_campos_escolhidos.item(indice).data(Qt.UserRole)
+                for indice in range(self.lista_campos_escolhidos.count())
+            ]
             # [[]] (uma linha vazia), nao [] -- obter_campos_resumo() trata
             # uma lista TOTALMENTE vazia como "nada configurado ainda" e
             # volta a sugestao automatica; [[]] e um valor "de verdade"
             # (uma linha sem nenhum campo), que representa "nenhum campo
             # extra" sem cair nesse fallback.
-            settings.salvar_campos_resumo(self.conn, tabela, [[campo_extra]] if campo_extra else [[]])
+            settings.salvar_campos_resumo(
+                self.conn, tabela, [[campo] for campo in campos_extra] if campos_extra else [[]]
+            )
 
         self.accept()

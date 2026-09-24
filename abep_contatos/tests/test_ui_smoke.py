@@ -417,17 +417,40 @@ def test_settings_dialog_constroi(banco_com_dados):
     assert dialogo.campo_nome.text()
 
 
+def _rotulos_lista(lista_widget) -> list[str]:
+    return [lista_widget.item(i).text() for i in range(lista_widget.count())]
+
+
+def _dados_lista(lista_widget) -> list[str]:
+    return [lista_widget.item(i).data(Qt.UserRole) for i in range(lista_widget.count())]
+
+
 def test_settings_dialog_campo_extra_carrega_sugestao_padrao(banco_com_dados):
-    """Sem nenhuma configuracao manual ainda, o combo "Campo extra na
-    lista" vem pre-selecionado com a sugestao automatica (o mesmo campo que
-    ui/lista_registros_view.py usaria como coluna extra) -- pra PESSOAS
-    (que tem ID_EMPRESA), isso e "Empresa"."""
+    """Sem nenhuma configuracao manual ainda, a lista "Campos escolhidos"
+    vem pre-preenchida com a sugestao automatica (os mesmos campos que
+    ui/lista_registros_view.py usaria como colunas extras) -- pra PESSOAS
+    (que tem ID_EMPRESA), a primeira delas e "Empresa"."""
     dialogo = SettingsDialog(banco_com_dados, "admin")
     dialogo.combo_tabela_resumo.setCurrentText(PESSOAS)
 
-    assert dialogo.combo_campo_extra.count() > 1  # "(nenhum)" + pelo menos 1 campo real
-    assert dialogo.combo_campo_extra.currentData() == "_EMPRESA_RESUMO"
-    assert dialogo.combo_campo_extra.currentText() == "Empresa"
+    assert dialogo.lista_campos_disponiveis.count() > 0
+    escolhidos = _dados_lista(dialogo.lista_campos_escolhidos)
+    assert escolhidos[0] == "_EMPRESA_RESUMO"
+    assert dialogo.lista_campos_escolhidos.item(0).text() == "Empresa"
+
+
+def _esvaziar_escolhidos(dialogo) -> None:
+    """Move todo mundo de volta pra "disponiveis", deixando "escolhidos"
+    vazia -- pra montar do zero um cenario determinístico no teste."""
+    while dialogo.lista_campos_escolhidos.count():
+        dialogo.lista_campos_escolhidos.setCurrentRow(0)
+        dialogo._remover_campo_escolhido()
+
+
+def _escolher_campo(dialogo, rotulo: str) -> None:
+    item = dialogo.lista_campos_disponiveis.findItems(rotulo, Qt.MatchExactly)[0]
+    dialogo.lista_campos_disponiveis.setCurrentItem(item)
+    dialogo._adicionar_campo_escolhido()
 
 
 def test_settings_dialog_salvar_campo_extra_persiste_no_banco(banco_com_dados):
@@ -436,14 +459,29 @@ def test_settings_dialog_salvar_campo_extra_persiste_no_banco(banco_com_dados):
     dialogo = SettingsDialog(banco_com_dados, "admin")
     dialogo.combo_tabela_resumo.setCurrentText(PESSOAS)
 
-    indice_cargo = dialogo.combo_campo_extra.findText("Cargo")
-    assert indice_cargo >= 0
-    dialogo.combo_campo_extra.setCurrentIndex(indice_cargo)
+    _esvaziar_escolhidos(dialogo)
+    _escolher_campo(dialogo, "Cargo")
 
     dialogo._salvar()
 
     layout_salvo = settings.obter_campos_resumo(banco_com_dados, PESSOAS, padrao=[])
     assert layout_salvo == [["CARGO"]]
+
+
+def test_settings_dialog_salvar_varios_campos_extra_preserva_ordem(banco_com_dados):
+    from db import settings
+
+    dialogo = SettingsDialog(banco_com_dados, "admin")
+    dialogo.combo_tabela_resumo.setCurrentText(PESSOAS)
+    _esvaziar_escolhidos(dialogo)
+
+    _escolher_campo(dialogo, "E-mail")
+    _escolher_campo(dialogo, "Cargo")
+
+    dialogo._salvar()
+
+    layout_salvo = settings.obter_campos_resumo(banco_com_dados, PESSOAS, padrao=[])
+    assert layout_salvo == [["EMAIL"], ["CARGO"]]
 
 
 def test_settings_dialog_salvar_campo_extra_nenhum_limpa_configuracao(banco_com_dados):
@@ -453,9 +491,9 @@ def test_settings_dialog_salvar_campo_extra_nenhum_limpa_configuracao(banco_com_
 
     dialogo = SettingsDialog(banco_com_dados, "admin")
     dialogo.combo_tabela_resumo.setCurrentText(PESSOAS)
-    assert dialogo.combo_campo_extra.currentData() == "CARGO"
+    assert _dados_lista(dialogo.lista_campos_escolhidos) == ["CARGO"]
 
-    dialogo.combo_campo_extra.setCurrentIndex(dialogo.combo_campo_extra.findData(None))
+    dialogo.lista_campos_escolhidos.clear()
     dialogo._salvar()
 
     # [[]] (uma linha vazia) e o valor que representa "nenhum campo extra"

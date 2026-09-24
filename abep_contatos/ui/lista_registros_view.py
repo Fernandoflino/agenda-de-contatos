@@ -425,6 +425,10 @@ class ListaRegistrosView(QWidget):
         self.tabela_widget.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.tabela_widget.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tabela_widget.setSelectionMode(QAbstractItemView.SingleSelection)
+        # Sem quebra de linha: um valor longo corta com "..." (o tooltip da
+        # celula mostra o texto inteiro) em vez de quebrar em varias linhas
+        # e ficar cortado verticalmente -- a altura da linha e fixa (46px).
+        self.tabela_widget.setWordWrap(False)
         self.tabela_widget.verticalHeader().hide()
         self.tabela_widget.cellClicked.connect(self._ao_clicar_celula)
         layout.addWidget(self.tabela_widget, stretch=1)
@@ -660,31 +664,33 @@ class ListaRegistrosView(QWidget):
         return f'#{registro.get("ID")}'
 
     def _colunas_extra_tabela(self) -> list[str]:
-        """SO 1 campo extra (alem do titulo) pra virar coluna na tabela --
-        de proposito bem pouco: cada coluna extra e espaco que sai do nome
-        (a coluna mais importante pra identificar quem e quem) e do
-        proprio painel de detalhes quando ele esta aberto. Melhor uma
-        coluna so, com espaco de sobra pra nao cortar o texto, do que
-        varias colunas apertadas.
+        """Os campos extras (alem do titulo) escolhidos em Configuracoes ->
+        "Campos da lista" -- na ordem em que a pessoa os colocou la --,
+        virando, cada um, uma coluna na tabela.
 
         Os 3 campos de empresa (_EMPRESA_SIGLA / _EMPRESA_SIGLA_EMPRESA /
-        _EMPRESA_NOME) contam como essa UNICA coluna quando aparecem
-        primeiro no layout ("_EMPRESA_RESUMO", tratada especialmente em
-        _valor_exibicao) -- nunca as 3 juntas (bug ja visto: a tabela de
-        Contatos mostrava so Sigla/UF/Nome da empresa repetidos, sem
-        sobrar NENHUM espaco pra dado da pessoa).
+        _EMPRESA_NOME) sempre contam como uma UNICA coluna ("_EMPRESA_RESUMO",
+        tratada especialmente em _valor_exibicao) -- nunca as 3 juntas (bug ja
+        visto: a tabela de Contatos mostrava so Sigla/UF/Nome da empresa
+        repetidos, sem sobrar espaco pra dado da pessoa).
         """
         vistos = {self._campo_titulo, "ID_EMPRESA"}
         campos_empresa = {"_EMPRESA_SIGLA", "_EMPRESA_SIGLA_EMPRESA", "_EMPRESA_NOME", "_EMPRESA_BUSCA"}
 
+        extras: list[str] = []
+        empresa_ja_incluida = False
         for linha_layout in self._layout_resumo:
             for campo in linha_layout:
                 if campo in vistos:
                     continue
                 if campo in campos_empresa:
-                    return ["_EMPRESA_RESUMO"]
-                return [campo]
-        return []
+                    if not empresa_ja_incluida:
+                        extras.append("_EMPRESA_RESUMO")
+                        empresa_ja_incluida = True
+                    continue
+                if campo not in extras:
+                    extras.append(campo)
+        return extras
 
     def _aplicar_filtro(self) -> None:
         """Aplica a busca livre + TODAS as linhas de filtro ativas ao mesmo
@@ -848,26 +854,33 @@ class ListaRegistrosView(QWidget):
 
             self.tabela_widget.setRowHeight(linha, 46)
 
-        # Colunas de TEXTO (titulo + a extra, se tiver) sao ELASTICAS
-        # (Stretch) em vez de largura fixa -- assim, quando o painel de
-        # detalhes abre e sobra menos espaco horizontal, as duas colunas
-        # encolhem PROPORCIONALMENTE (e o texto corta com "..." + tooltip
-        # so se realmente faltar espaco), em vez de manterem uma largura
-        # fixa e empurrarem a coluna "Acoes" pra fora da tela, exigindo
-        # rolagem horizontal (bug ja visto). As larguras abaixo, definidas
-        # ANTES de virar Stretch, so a proporcao inicial entre elas (titulo
-        # bem mais largo, ja que e o dado mais importante pra identificar
-        # o registro) -- "Acoes" e o checkbox continuam com largura FIXA,
-        # sempre visiveis nas pontas.
+        # Colunas de TEXTO (titulo + extras) tem largura BASEADA NO CONTEUDO
+        # de cada uma (resizeColumnToContents, igual o Qt calcularia numa
+        # coluna normal) -- nao um numero fixo igual pra todas, e nao
+        # "Stretch" tambem igual pra todas: o Qt divide o espaco sobrando
+        # em PARTES IGUAIS entre colunas "Stretch" (testado à parte), sem
+        # ligar pro tamanho de cada uma, entao uma coluna de conteudo curto
+        # (ex.: "UF") acabava do mesmo tamanho que uma de texto longo (ex.:
+        # "Empresa por extenso"), desperdicando espaco de um lado e cortando
+        # texto do outro (bug ja visto, reportado pelo usuario). Cada coluna
+        # continua ajustavel a mao (Interactive) se a pessoa quiser mudar.
+        # "Acoes" e o checkbox continuam com largura FIXA, sempre visiveis.
         cabecalho = self.tabela_widget.horizontalHeader()
         cabecalho.setSectionResizeMode(0, QHeaderView.Fixed)
         self.tabela_widget.setColumnWidth(0, 40)
 
-        self.tabela_widget.setColumnWidth(1, 420 if extras else 640)
-        cabecalho.setSectionResizeMode(1, QHeaderView.Stretch)
-        for indice in range(2, len(cabecalhos) - 1):
-            self.tabela_widget.setColumnWidth(indice, 220)
-            cabecalho.setSectionResizeMode(indice, QHeaderView.Stretch)
+        _LARGURA_MIN_COLUNA_TEXTO = 90
+        _LARGURA_MAX_COLUNA_TITULO = 480
+        _LARGURA_MAX_COLUNA_EXTRA = 320
+        for indice in range(1, len(cabecalhos) - 1):
+            self.tabela_widget.resizeColumnToContents(indice)
+            largura_max = _LARGURA_MAX_COLUNA_TITULO if indice == 1 else _LARGURA_MAX_COLUNA_EXTRA
+            largura = max(
+                _LARGURA_MIN_COLUNA_TEXTO,
+                min(self.tabela_widget.columnWidth(indice) + 16, largura_max),
+            )
+            self.tabela_widget.setColumnWidth(indice, largura)
+            cabecalho.setSectionResizeMode(indice, QHeaderView.Interactive)
 
         # A largura da coluna "Acoes" soma um espaco extra do tamanho da
         # PROPRIA barra de rolagem vertical (perguntado ao Qt, nao um
