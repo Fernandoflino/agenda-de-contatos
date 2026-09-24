@@ -37,7 +37,7 @@
 ; Precisa ser atualizado junto com VERSAO em versao.py e com a tag da
 ; Release publicada no GitHub (ex.: v0.12.0) -- e essa tag que o aviso de
 ; atualizacao dentro do programa usa pra saber se ha uma versao mais nova.
-#define MyAppVersion "0.11.2"
+#define MyAppVersion "0.11.3"
 #define MyAppPublisher "ABEP-TIC"
 #define MyAppExeName "PainelDeContatos.exe"
 #define MyAppAssocExt ".abepdb"
