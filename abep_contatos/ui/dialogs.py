@@ -6,11 +6,9 @@ cada tela, ele fica centralizado aqui.
 """
 from __future__ import annotations
 
-import subprocess
-
 from PySide6.QtWidgets import QApplication, QCheckBox, QMessageBox, QProgressDialog, QWidget
 
-from atualizacao import BaixadorAtualizacao
+from atualizacao import BaixadorAtualizacao, abrir_instalador
 
 
 def confirmar_exclusao(parent: QWidget, rotulo: str, tipo: str = "registro") -> bool:
@@ -87,7 +85,18 @@ def baixar_e_instalar_atualizacao(app: QApplication, url_download: str, parent: 
 
     def _ao_concluir(caminho_instalador: str) -> None:
         progresso.close()
-        subprocess.Popen([caminho_instalador], close_fds=True)
+        try:
+            abrir_instalador(caminho_instalador)
+        except OSError as erro:
+            mostrar_erro(
+                parent,
+                "O instalador foi baixado, mas não foi possível abri-lo "
+                f"({erro}).\n\n"
+                "Isso costuma acontecer quando o antivírus bloqueia ou remove "
+                "o arquivo baixado por ele não ter assinatura digital -- "
+                "confira a quarentena/histórico do seu antivírus.",
+            )
+            return
         app.quit()
 
     def _ao_falhar(mensagem: str) -> None:

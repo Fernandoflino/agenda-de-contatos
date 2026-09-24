@@ -1,7 +1,7 @@
 import json
 from unittest.mock import MagicMock, patch
 
-from atualizacao import VerificadorAtualizacao, buscar_info_atualizacao, versao_e_mais_nova
+from atualizacao import VerificadorAtualizacao, abrir_instalador, buscar_info_atualizacao, versao_e_mais_nova
 
 
 def test_versao_remota_mais_nova():
@@ -104,3 +104,19 @@ def test_verificador_emite_encontrada_quando_ha_versao_nova(mock_buscar):
     verificador._verificar()
 
     assert recebidos == [{"versao": "9.0.0", "notas": "", "url_download": "https://x"}]
+
+
+@patch("atualizacao.subprocess.Popen")
+def test_abrir_instalador_chama_popen_com_o_caminho(popen_mock):
+    abrir_instalador("C:/temp/PainelDeContatosSetup.exe")
+
+    popen_mock.assert_called_once_with(["C:/temp/PainelDeContatosSetup.exe"], close_fds=True)
+
+
+@patch("atualizacao.subprocess.Popen", side_effect=OSError("arquivo bloqueado"))
+def test_abrir_instalador_propaga_oserror_quando_nao_consegue_abrir(popen_mock):
+    try:
+        abrir_instalador("C:/temp/PainelDeContatosSetup.exe")
+        assert False, "deveria ter levantado OSError"
+    except OSError as erro:
+        assert str(erro) == "arquivo bloqueado"

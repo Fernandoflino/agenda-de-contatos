@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import tempfile
 import threading
 import urllib.error
@@ -109,6 +110,18 @@ def baixar_instalador(url: str, ao_progresso: Optional[Callable[[int, int], None
                 if ao_progresso:
                     ao_progresso(lido, total)
     return destino
+
+
+def abrir_instalador(caminho: str) -> None:
+    """Abre o instalador baixado, numa janela separada.
+
+    Levanta OSError se nao for possivel abrir -- por exemplo quando o
+    antivirus bloqueia ou remove o arquivo baixado, ja que ele nao tem
+    assinatura digital e acaba de ser baixado e executado por outro programa
+    (padrao que heuristicas de antivirus costumam marcar como suspeito; ver
+    nota em packaging/installer.iss). Quem chama essa funcao deve tratar
+    esse erro em vez de deixar a falha passar em silencio."""
+    subprocess.Popen([caminho], close_fds=True)
 
 
 class VerificadorAtualizacao(QObject):
