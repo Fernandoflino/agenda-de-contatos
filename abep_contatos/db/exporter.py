@@ -44,6 +44,15 @@ _MAPA_CAMPO_EMPRESA = {
 }
 
 
+def _valor_celula(valor):
+    """Converte um valor pro formato de uma celula de planilha -- uma lista
+    (ex.: CATEGORIAS, que uma pessoa pode ter varias) vira texto juntando os
+    itens com virgula, em vez de ser escrita "crua" numa celula."""
+    if isinstance(valor, list):
+        return ", ".join(str(v) for v in valor)
+    return valor
+
+
 def colunas_exportaveis(conn: sqlite3.Connection, tabela: str) -> tuple[list[str], dict[str, str]]:
     """Lista de colunas oferecidas pra exportacao, na ordem de exibicao --
     com ID_EMPRESA ja trocado por SIGLA/EMPRESA quando a tabela tiver essa
@@ -94,7 +103,7 @@ def montar_exportacao_simples(conn: sqlite3.Connection, tabela: str,
         linha = {}
         for c in columns:
             campo_fonte = mapa_fonte.get(c, c)
-            linha[c] = r.get(campo_fonte, "")
+            linha[c] = _valor_celula(r.get(campo_fonte, ""))
         rows.append(linha)
     return columns, rows
 
@@ -127,7 +136,15 @@ def montar_exportacao_mesclada(conn: sqlite3.Connection, tabela_pessoas: str,
         campos = campos_por_valor.get(valor) if campos_por_valor else None
         if not campos:
             campos = [c for c in registros[0].keys() if not c.startswith("_")] if registros else []
-        return [c for c in campos if c not in ("ID_EMPRESA", campo_agrupador)]
+        # Campos cujo valor e uma LISTA (ex.: CATEGORIAS, ja que uma pessoa
+        # pode ter varias) nao entram automaticamente num bloco de encaixe --
+        # escreve-los exigiria juntar o valor primeiro (ver _valor_celula),
+        # e nao fazem sentido repetidos em cada bloco de qualquer forma.
+        return [
+            c for c in campos
+            if c not in ("ID_EMPRESA", campo_agrupador)
+            and not isinstance((registros[0] if registros else {}).get(c), list)
+        ]
 
     # So entram na exportacao as empresas que realmente tem pelo menos uma
     # pessoa entre os registros filtrados (mesma logica do sistema antigo).
@@ -153,11 +170,23 @@ def montar_exportacao_mesclada(conn: sqlite3.Connection, tabela_pessoas: str,
         # pra ainda assim gerar uma linha (com aquele bloco em branco).
         listas_por_slot = []
         for valor in valores_agrupador:
-            pessoas_do_slot = [
-                r for r in registros
-                if r.get("ID_EMPRESA") == eid
-                and str(r.get(campo_agrupador, "") or "").strip().lower() == valor.strip().lower()
-            ]
+            if campo_agrupador == "CATEGORIA":
+                # Uma pessoa pode ter VARIAS categorias agora -- ela entra em
+                # TODOS os encaixes que bater, nao só num (diferente de
+                # CARGO ou outro agrupador, que continua comparando um valor
+                # escalar so).
+                alvo = valor.strip().lower()
+                pessoas_do_slot = [
+                    r for r in registros
+                    if r.get("ID_EMPRESA") == eid
+                    and alvo in {str(c).strip().lower() for c in (r.get("CATEGORIAS") or [])}
+                ]
+            else:
+                pessoas_do_slot = [
+                    r for r in registros
+                    if r.get("ID_EMPRESA") == eid
+                    and str(r.get(campo_agrupador, "") or "").strip().lower() == valor.strip().lower()
+                ]
             listas_por_slot.append(pessoas_do_slot or [None])
 
         # itertools.product gera todas as combinacoes possiveis entre os
@@ -172,7 +201,7 @@ def montar_exportacao_mesclada(conn: sqlite3.Connection, tabela_pessoas: str,
 
             for valor, pessoa in zip(valores_agrupador, combinacao):
                 for campo in _campos_do_valor(valor):
-                    linha[f"{valor} - {campo}"] = (pessoa or {}).get(campo, "")
+                    linha[f"{valor} - {campo}"] = _valor_celula((pessoa or {}).get(campo, ""))
 
             rows.append(linha)
 

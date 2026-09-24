@@ -57,6 +57,7 @@ from ui.avatar import criar_avatar as _criar_avatar
 from ui.dialogs import confirmar_exclusao, mostrar_erro, mostrar_info
 from ui.record_form_dialog import RecordFormDialog
 from ui.theme import cor_texto_mutado, marcar_variante
+from ui.widgets import ComboMultiSelecao
 from ui.window_utils import limpar_layout
 
 _ITENS_POR_PAGINA_PADRAO = 20
@@ -273,9 +274,9 @@ class ListaRegistrosView(QWidget):
             self._popular_valor_combo_empresa(widget)
             widget.currentIndexChanged.connect(self._ao_mudar_filtro)
         elif campo == "CATEGORIA" and self.tabela == PESSOAS:
-            widget = QComboBox()
+            widget = ComboMultiSelecao()
             self._popular_valor_combo_categoria(widget)
-            widget.currentIndexChanged.connect(self._ao_mudar_filtro)
+            widget.selecaoMudou.connect(self._ao_mudar_filtro)
         else:
             widget = QLineEdit()
             widget.setPlaceholderText("valor do filtro...")
@@ -304,16 +305,8 @@ class ListaRegistrosView(QWidget):
         combo.setCurrentIndex(indice if indice >= 0 else 0)
         combo.blockSignals(False)
 
-    def _popular_valor_combo_categoria(self, combo: QComboBox) -> None:
-        atual = combo.currentData()
-        combo.blockSignals(True)
-        combo.clear()
-        combo.addItem("(todas)", None)
-        for nome in categorias.listar_categorias(self.conn):
-            combo.addItem(nome, nome)
-        indice = combo.findData(atual) if atual else -1
-        combo.setCurrentIndex(indice if indice >= 0 else 0)
-        combo.blockSignals(False)
+    def _popular_valor_combo_categoria(self, combo: ComboMultiSelecao) -> None:
+        combo.definir_opcoes(categorias.listar_categorias(self.conn))
 
     def _atualizar_combo_campo_linha(self, linha: QWidget, opcoes: list[tuple[str, str]]) -> None:
         """Reconstroi as OPCOES de campo de uma linha (o esquema pode ter
@@ -378,7 +371,7 @@ class ListaRegistrosView(QWidget):
             # Ignora silenciosamente um filtro salvo que nao faz mais sentido
             # (ex.: o campo foi removido em "Tabelas e campos" desde a ultima
             # vez) -- em vez de dar erro, a tela so abre sem essa linha.
-            if campo not in campos_validos or valor in (None, ""):
+            if campo not in campos_validos or valor in (None, "", []):
                 continue
 
             self._adicionar_linha_filtro()
@@ -391,7 +384,10 @@ class ListaRegistrosView(QWidget):
             linha.combo_campo.blockSignals(False)
             self._construir_widget_valor(linha)
 
-            if isinstance(linha.widget_valor, QComboBox):
+            if campo == "CATEGORIA" and self.tabela == PESSOAS and isinstance(linha.widget_valor, ComboMultiSelecao):
+                marcadas = valor if isinstance(valor, list) else []
+                linha.widget_valor.definir_opcoes(categorias.listar_categorias(self.conn), marcadas)
+            elif isinstance(linha.widget_valor, QComboBox):
                 indice_valor = linha.widget_valor.findData(valor)
                 if indice_valor >= 0:
                     linha.widget_valor.setCurrentIndex(indice_valor)
@@ -408,8 +404,13 @@ class ListaRegistrosView(QWidget):
             campo = linha.combo_campo.currentData()
             if not campo:
                 continue
-            valor = linha.widget_valor.currentData() if isinstance(linha.widget_valor, QComboBox) else linha.widget_valor.text()
-            if valor in (None, ""):
+            if campo == "CATEGORIA" and self.tabela == PESSOAS and isinstance(linha.widget_valor, ComboMultiSelecao):
+                valor = linha.widget_valor.selecionados()
+            elif isinstance(linha.widget_valor, QComboBox):
+                valor = linha.widget_valor.currentData()
+            else:
+                valor = linha.widget_valor.text()
+            if valor in (None, "", []):
                 continue
             filtros.append({"campo": campo, "valor": valor})
 
@@ -723,11 +724,16 @@ class ListaRegistrosView(QWidget):
                 if id_empresa_filtro is not None:
                     filtrados = [r for r in filtrados if r.get("ID_EMPRESA") == id_empresa_filtro]
             elif campo == "CATEGORIA" and self.tabela == PESSOAS:
-                # Mesma logica de ID exato acima, so que comparando o texto
-                # inteiro da categoria (nao um pedaco dele).
-                categoria_filtro = linha.widget_valor.currentData()
-                if categoria_filtro is not None:
-                    filtrados = [r for r in filtrados if r.get("CATEGORIA") == categoria_filtro]
+                # Um contato pode ter varias categorias -- essa linha marca
+                # varias ao mesmo tempo (ver ComboMultiSelecao), e o registro
+                # aparece se tiver QUALQUER UMA das marcadas (logica "OU"
+                # dentro dessa linha, combinada com "E" entre linhas de
+                # filtro diferentes, como o resto da tela ja faz).
+                categorias_filtro = set(linha.widget_valor.selecionados())
+                if categorias_filtro:
+                    filtrados = [
+                        r for r in filtrados if categorias_filtro & set(r.get("CATEGORIAS") or [])
+                    ]
             else:
                 texto = linha.widget_valor.text()
                 if texto:
@@ -1026,11 +1032,19 @@ class ListaRegistrosView(QWidget):
         linha_avatar.addLayout(bloco_nome, stretch=1)
         self._layout_cabecalho_detalhe.addLayout(linha_avatar)
 
-        if registro.get("CATEGORIA"):
-            rotulo_tag = QLabel(str(registro["CATEGORIA"]))
-            rotulo_tag.setProperty("papel", "pilula")
-            rotulo_tag.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-            self._layout_cabecalho_detalhe.addWidget(rotulo_tag, alignment=Qt.AlignLeft)
+        categorias_pessoa = registro.get("CATEGORIAS")
+        if categorias_pessoa is None and registro.get("CATEGORIA"):
+            categorias_pessoa = [registro["CATEGORIA"]]
+        if categorias_pessoa:
+            linha_pilulas = QHBoxLayout()
+            linha_pilulas.setSpacing(6)
+            for nome_categoria in categorias_pessoa:
+                rotulo_tag = QLabel(str(nome_categoria))
+                rotulo_tag.setProperty("papel", "pilula")
+                rotulo_tag.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+                linha_pilulas.addWidget(rotulo_tag)
+            linha_pilulas.addStretch()
+            self._layout_cabecalho_detalhe.addLayout(linha_pilulas)
 
         colunas = get_column_order(self.conn, self.tabela)
         campo_email = next(
@@ -1144,7 +1158,9 @@ class ListaRegistrosView(QWidget):
         dialogo = RecordFormDialog(self.conn, self.tabela, registro=None, parent=self)
         if dialogo.exec():
             try:
-                records.create_record(self.conn, self.tabela, dialogo.resultado(), usuario=self.usuario_logado)
+                novo_id = records.create_record(self.conn, self.tabela, dialogo.resultado(), usuario=self.usuario_logado)
+                if self.tabela == PESSOAS:
+                    categorias.definir_categorias_da_pessoa(self.conn, novo_id, dialogo.resultado_categorias() or [])
             except (ValueError, sqlite3.Error) as erro:
                 mostrar_erro(self, str(erro))
                 return
@@ -1155,6 +1171,10 @@ class ListaRegistrosView(QWidget):
         if dialogo.exec():
             try:
                 records.update_record(self.conn, self.tabela, registro["ID"], dialogo.resultado(), usuario=self.usuario_logado)
+                if self.tabela == PESSOAS:
+                    categorias.definir_categorias_da_pessoa(
+                        self.conn, registro["ID"], dialogo.resultado_categorias() or []
+                    )
             except (ValueError, sqlite3.Error) as erro:
                 mostrar_erro(self, str(erro))
                 return

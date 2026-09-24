@@ -45,10 +45,10 @@ from dataclasses import dataclass, field
 
 import openpyxl
 
-from . import log, tables
+from . import categorias, log, tables
 from .identifiers import quote_ident, validar_identificador
 from .normalizacao import normalizar_nome_proprio
-from .schema import EMPRESAS, PESSOAS
+from .schema import APP_CATEGORIAS, APP_PESSOAS_CATEGORIAS, EMPRESAS, PESSOAS
 
 # Abas que nunca devem ser importadas -- ou porque nao fazem mais sentido
 # nesse formato (CONFIGURACOES virou a tabela app_log) ou porque o banco
@@ -118,18 +118,20 @@ def _ler_linhas(ws, cabecalho: list[str]) -> list[dict]:
     return linhas
 
 
-def _inserir_linha(conn: sqlite3.Connection, tabela: str, dados: dict) -> None:
-    """Monta e executa um INSERT simples com os campos de `dados`."""
+def _inserir_linha(conn: sqlite3.Connection, tabela: str, dados: dict) -> int:
+    """Monta e executa um INSERT simples com os campos de `dados`. Devolve o
+    ID gerado pela linha nova."""
     campos = list(dados.keys())
     if not campos:
-        conn.execute(f"INSERT INTO {quote_ident(tabela)} DEFAULT VALUES")
-        return
+        cur = conn.execute(f"INSERT INTO {quote_ident(tabela)} DEFAULT VALUES")
+        return cur.lastrowid
     campos_sql = ", ".join(quote_ident(c) for c in campos)
     placeholders = ", ".join("?" for _ in campos)
-    conn.execute(
+    cur = conn.execute(
         f"INSERT INTO {quote_ident(tabela)} ({campos_sql}) VALUES ({placeholders})",
         [dados[c] for c in campos],
     )
+    return cur.lastrowid
 
 
 def _garantir_colunas(conn: sqlite3.Connection, tabela: str, colunas_desejadas: list[str], usuario: str) -> None:
@@ -177,21 +179,22 @@ def _importar_pessoas(conn: sqlite3.Connection, aba_origem: str, cabecalho: list
     aponta pra outra tabela) esse sim e mantido, porque continua valendo.
     """
     colunas_pessoa = [c for c in cabecalho if c != "ID"]
-    if "CATEGORIA" not in colunas_pessoa:
-        colunas_pessoa.append("CATEGORIA")
     _garantir_colunas(conn, PESSOAS, colunas_pessoa, usuario)
     categoria = normalizar_nome_proprio(aba_origem)
 
+    # Garante que a categoria (nome da aba) existe na lista mestre, sem
+    # duplicar se duas abas diferentes normalizarem pro mesmo nome.
+    existentes = {c.lower() for c in categorias.listar_categorias(conn)}
+    if categoria.lower() not in existentes:
+        categorias.adicionar_categoria(conn, categoria, usuario=usuario)
+
+    ids_pessoas_novas: list[int] = []
     for linha in linhas:
         dados = {k: v for k, v in linha.items() if k != "ID"}
 
-        # CATEGORIA guarda de qual aba a pessoa veio (ex.: "Presidentes",
-        # "Diretores Tecnicos") -- diferente de CARGO, que e o titulo livre
-        # digitado na planilha (ex.: "Secretario de Estado..."). Sem isso,
-        # a informacao de "aba de origem" da planilha antiga se perderia.
-        dados["CATEGORIA"] = categoria
-        # Se a linha nao tinha um CARGO preenchido, usamos a categoria como
-        # cargo tambem -- assim nenhuma pessoa fica sem indicacao de papel.
+        # Se a linha nao tinha um CARGO preenchido, usamos a categoria (nome
+        # da aba) como cargo tambem -- assim nenhuma pessoa fica sem
+        # indicacao de papel.
         if not dados.get("CARGO"):
             dados["CARGO"] = categoria
 
@@ -199,7 +202,18 @@ def _importar_pessoas(conn: sqlite3.Connection, aba_origem: str, cabecalho: list
             if dados.get(campo):
                 dados[campo] = normalizar_nome_proprio(dados[campo])
 
-        _inserir_linha(conn, PESSOAS, dados)
+        ids_pessoas_novas.append(_inserir_linha(conn, PESSOAS, dados))
+
+    # Vincula, em lote, todas as pessoas dessa aba a categoria correspondente
+    # (uma pessoa pode ganhar mais de uma categoria se aparecer em abas
+    # diferentes, ja que cada aba e importada separadamente).
+    categoria_id = conn.execute(
+        f'SELECT "ID" FROM {APP_CATEGORIAS} WHERE LOWER("NOME") = LOWER(?)', (categoria,)
+    ).fetchone()[0]
+    conn.executemany(
+        f'INSERT OR IGNORE INTO {APP_PESSOAS_CATEGORIAS} ("PESSOA_ID", "CATEGORIA_ID") VALUES (?, ?)',
+        [(pessoa_id, categoria_id) for pessoa_id in ids_pessoas_novas],
+    )
     conn.commit()
     return len(linhas)
 

@@ -1,4 +1,4 @@
-from db import exporter, records
+from db import categorias, exporter, records
 
 
 def _preparar(conn):
@@ -75,13 +75,17 @@ def test_exportacao_mesclada_usa_categoria_por_padrao(conn):
     o agrupador padrao -- diferente do CARGO (texto livre), ela tem sempre
     os mesmos valores conhecidos, o que a torna mais confiavel pra montar a
     mala direta."""
+    categorias.adicionar_categoria(conn, "Presidentes")
+    categorias.adicionar_categoria(conn, "Diretores Tecnicos")
     id_abc = records.create_record(conn, "EMPRESAS", {"SIGLA": "QQQ", "EMPRESA": "Empresa QQQ"})
-    records.create_record(conn, "PESSOAS", {
-        "ID_EMPRESA": id_abc, "CATEGORIA": "Presidentes", "CARGO": "Presidente Executivo", "NOME": "Fabio",
+    id_fabio = records.create_record(conn, "PESSOAS", {
+        "ID_EMPRESA": id_abc, "CARGO": "Presidente Executivo", "NOME": "Fabio",
     })
-    records.create_record(conn, "PESSOAS", {
-        "ID_EMPRESA": id_abc, "CATEGORIA": "Diretores Tecnicos", "CARGO": "Coordenador-Geral", "NOME": "Gina",
+    id_gina = records.create_record(conn, "PESSOAS", {
+        "ID_EMPRESA": id_abc, "CARGO": "Coordenador-Geral", "NOME": "Gina",
     })
+    categorias.definir_categorias_da_pessoa(conn, id_fabio, ["Presidentes"])
+    categorias.definir_categorias_da_pessoa(conn, id_gina, ["Diretores Tecnicos"])
 
     columns, rows = exporter.montar_exportacao_mesclada(
         conn, "PESSOAS", valores_agrupador=["Presidentes", "Diretores Tecnicos"],
@@ -90,6 +94,37 @@ def test_exportacao_mesclada_usa_categoria_por_padrao(conn):
     assert len(rows) == 1
     assert rows[0]["Presidentes - NOME"] == "Fabio"
     assert rows[0]["Diretores Tecnicos - NOME"] == "Gina"
+
+
+def test_exportacao_mesclada_pessoa_com_varias_categorias_aparece_em_todos_os_blocos(conn):
+    """Um contato pode ter mais de uma categoria ao mesmo tempo -- ele deve
+    aparecer em CADA bloco correspondente, nao so num."""
+    categorias.adicionar_categoria(conn, "Presidentes")
+    categorias.adicionar_categoria(conn, "Diretores Tecnicos")
+    id_empresa = records.create_record(conn, "EMPRESAS", {"SIGLA": "QQQ", "EMPRESA": "Empresa QQQ"})
+    id_fabio = records.create_record(conn, "PESSOAS", {"ID_EMPRESA": id_empresa, "NOME": "Fabio"})
+    categorias.definir_categorias_da_pessoa(conn, id_fabio, ["Presidentes", "Diretores Tecnicos"])
+
+    columns, rows = exporter.montar_exportacao_mesclada(
+        conn, "PESSOAS", valores_agrupador=["Presidentes", "Diretores Tecnicos"],
+        campos_por_valor={"Presidentes": ["NOME"], "Diretores Tecnicos": ["NOME"]},
+    )
+    assert len(rows) == 1
+    assert rows[0]["Presidentes - NOME"] == "Fabio"
+    assert rows[0]["Diretores Tecnicos - NOME"] == "Fabio"
+
+
+def test_exportacao_simples_junta_varias_categorias_com_virgula(conn):
+    categorias.adicionar_categoria(conn, "Presidentes")
+    categorias.adicionar_categoria(conn, "Diretores Tecnicos")
+    id_pessoa = records.create_record(conn, "PESSOAS", {"NOME": "Fabio"})
+    categorias.definir_categorias_da_pessoa(conn, id_pessoa, ["Presidentes", "Diretores Tecnicos"])
+
+    columns, rows = exporter.montar_exportacao_simples(conn, "PESSOAS")
+
+    assert "CATEGORIA" in columns
+    linha = next(r for r in rows if r["NOME"] == "Fabio")
+    assert linha["CATEGORIA"] == "Presidentes, Diretores Tecnicos"
 
 
 def test_exportar_xlsx_e_csv(conn, tmp_path):

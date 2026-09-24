@@ -4,9 +4,10 @@ lista de opcoes que aparece no campo "Categoria" do formulario de contato e
 no filtro "Categoria" da lista de Contatos (ver ui/record_form_dialog.py e
 ui/lista_registros_view.py).
 
-Renomear ou excluir uma categoria aqui tambem atualiza (ou limpa) o campo
-CATEGORIA de todos os contatos que ja usavam aquele valor -- ver
-db/categorias.py pros detalhes de como isso e feito.
+Um contato pode ter mais de uma categoria ao mesmo tempo. Renomear uma
+categoria aqui so muda o nome exibido (quem ja tinha ela continua tendo);
+excluir remove essa etiqueta dos contatos que a usavam, sem mexer nas
+outras categorias que eles tiverem -- ver db/categorias.py pros detalhes.
 """
 from __future__ import annotations
 
@@ -46,9 +47,10 @@ class CategoriasDialog(QDialog):
         layout.setSpacing(12)
 
         descricao = QLabel(
-            'Estas são as opções do campo "Categoria" no formulário de contato e no '
-            "filtro da lista de Contatos. Excluir uma categoria não apaga os contatos, "
-            "só deixa o campo Categoria deles em branco."
+            'Estas são as opções de "Categorias" no formulário de contato e no '
+            "filtro da lista de Contatos -- um contato pode ter mais de uma ao mesmo "
+            "tempo. Excluir uma categoria não apaga os contatos, só remove essa "
+            "etiqueta deles (as outras categorias que já tiverem continuam)."
         )
         descricao.setWordWrap(True)
         descricao.setProperty("papel", "subtitulo")
@@ -131,7 +133,7 @@ class CategoriasDialog(QDialog):
         uso = categorias.contar_uso(self.conn, atual)
         if uso:
             sufixo = "1 contato" if uso == 1 else f"{uso} contatos"
-            tipo_msg = f"categoria (usada por {sufixo} -- o campo Categoria deles ficará em branco)"
+            tipo_msg = f"categoria (usada por {sufixo} -- essa categoria será removida desses contatos)"
         else:
             tipo_msg = "categoria"
         if not confirmar_exclusao(self, atual, tipo=tipo_msg):

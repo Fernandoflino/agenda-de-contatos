@@ -15,7 +15,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QComboBox
 
-from db import auth, connection, importer, records
+from db import auth, categorias, connection, importer, records
 from db.schema import EMPRESAS, PESSOAS
 from ui.dashboard_view import DashboardView
 from ui.export_dialog import ExportDialog
@@ -137,9 +137,9 @@ def test_lista_registros_view_varios_filtros_combinam_com_e(banco_com_dados):
     linha de filtro adicionada estreita ainda mais o resultado da anterior."""
     view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
     todas = records.get_records(banco_com_dados, PESSOAS)
-    primeira_pessoa = todas[0]
+    primeira_pessoa = next(p for p in todas if p.get("CATEGORIAS"))
     id_empresa = primeira_pessoa["ID_EMPRESA"]
-    categoria = primeira_pessoa["CATEGORIA"]
+    categoria = primeira_pessoa["CATEGORIAS"][0]
 
     # 1a linha: filtra por Empresa.
     view._adicionar_linha_filtro()
@@ -149,23 +149,29 @@ def test_lista_registros_view_varios_filtros_combinam_com_e(banco_com_dados):
     so_empresa = {r["ID"] for r in view._registros_filtrados}
     assert primeira_pessoa["ID"] in so_empresa
 
-    # 2a linha: filtra tambem por Categoria -- resultado so pode ENCOLHER
-    # (ou ficar igual), nunca trazer gente de fora do filtro de empresa.
+    # 2a linha: filtra tambem por Categoria (o combo de categoria agora deixa
+    # marcar mais de um valor ao mesmo tempo -- aqui marcamos so um) --
+    # resultado so pode ENCOLHER (ou ficar igual), nunca trazer gente de fora
+    # do filtro de empresa.
     view._adicionar_linha_filtro()
     linha_categoria = view._linhas_filtro[1]
     linha_categoria.combo_campo.setCurrentIndex(linha_categoria.combo_campo.findText("Categoria"))
-    linha_categoria.widget_valor.setCurrentIndex(linha_categoria.widget_valor.findData(categoria))
+    linha_categoria.widget_valor.definir_opcoes(categorias.listar_categorias(banco_com_dados), [categoria])
+    view._aplicar_filtro()
 
     combinado = view._registros_filtrados
     ids_combinado = {r["ID"] for r in combinado}
     assert ids_combinado <= so_empresa
     assert primeira_pessoa["ID"] in ids_combinado
-    assert all(r.get("ID_EMPRESA") == id_empresa and r.get("CATEGORIA") == categoria for r in combinado)
+    assert all(
+        r.get("ID_EMPRESA") == id_empresa and categoria in (r.get("CATEGORIAS") or [])
+        for r in combinado
+    )
 
     # Remover a 1a linha volta a filtrar so por Categoria.
     view._remover_linha_filtro(linha_empresa)
     assert view._linhas_filtro == [linha_categoria]
-    assert all(r.get("CATEGORIA") == categoria for r in view._registros_filtrados)
+    assert all(categoria in (r.get("CATEGORIAS") or []) for r in view._registros_filtrados)
 
 
 def test_lista_registros_view_restaura_filtro_largura_e_itens_por_pagina(banco_com_dados):
@@ -199,13 +205,15 @@ def test_lista_registros_view_preferencias_nao_vazam_entre_usuarios(banco_com_da
     """Cada pessoa que faz login ve so os PROPRIOS filtros salvos -- Fernando
     e Diego usando o mesmo banco nao podem ver o filtro um do outro."""
     auth.criar_usuario(banco_com_dados, "outra_pessoa", "senha123", "Outra Pessoa")
-    pessoa_com_categoria = next(p for p in records.get_records(banco_com_dados, PESSOAS) if p.get("CATEGORIA"))
+    pessoa_com_categoria = next(p for p in records.get_records(banco_com_dados, PESSOAS) if p.get("CATEGORIAS"))
+    categoria = pessoa_com_categoria["CATEGORIAS"][0]
 
     view_admin = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
     view_admin._adicionar_linha_filtro()
     linha = view_admin._linhas_filtro[0]
     linha.combo_campo.setCurrentIndex(linha.combo_campo.findText("Categoria"))
-    linha.widget_valor.setCurrentIndex(linha.widget_valor.findData(pessoa_com_categoria["CATEGORIA"]))
+    linha.widget_valor.definir_opcoes(categorias.listar_categorias(banco_com_dados), [categoria])
+    view_admin._salvar_preferencias()
 
     view_outra_pessoa = ListaRegistrosView(banco_com_dados, PESSOAS, "outra_pessoa")
     assert view_outra_pessoa._linhas_filtro == []

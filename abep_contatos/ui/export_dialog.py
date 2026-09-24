@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from db import exporter, records
+from db import categorias, exporter, records
 from db.schema import PESSOAS
 from db.tables import list_data_sheets
 from ui.dialogs import mostrar_erro, mostrar_info
@@ -188,8 +188,16 @@ class ExportDialog(QDialog):
         self.lista_cargos.clear()
         if self.combo_tabela.currentText() != PESSOAS or not campo:
             return
-        pessoas = records.get_records(self.conn, PESSOAS)
-        valores = sorted({str(p.get(campo)) for p in pessoas if p.get(campo)})
+        if campo == "CATEGORIA":
+            # CATEGORIA agora pode ter varios valores por pessoa (campo
+            # CATEGORIAS, uma lista) -- usar a lista mestre de categorias
+            # (nomes individuais, na ordem configurada) em vez de derivar
+            # dos registros, que traria o texto ja "A, B" juntado como se
+            # fosse um encaixe so.
+            valores = categorias.listar_categorias(self.conn)
+        else:
+            pessoas = records.get_records(self.conn, PESSOAS)
+            valores = sorted({str(p.get(campo)) for p in pessoas if p.get(campo)})
         for valor in valores:
             item = QListWidgetItem(valor)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)

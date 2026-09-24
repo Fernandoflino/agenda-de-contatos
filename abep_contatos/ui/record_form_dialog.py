@@ -42,7 +42,7 @@ from db.schema import PESSOAS, USUARIOS
 from db.tables import get_column_order
 from ui import field_types
 from ui.theme import marcar_variante
-from ui.widgets import CampoSenha
+from ui.widgets import CampoSenha, SelecaoMultiplaLista
 from ui.window_utils import preparar_janela
 
 
@@ -70,6 +70,8 @@ class RecordFormDialog(QDialog):
         self.registro = registro or {}
         self._widgets: dict[str, QWidget] = {}
         self._dados: dict | None = None
+        self._widget_categorias: SelecaoMultiplaLista | None = None
+        self._categorias_selecionadas: list[str] | None = None
 
         self.setWindowTitle(f'{"Editar" if registro else "Novo"} registro -- {tabela}')
         preparar_janela(self, 520, 620)
@@ -83,6 +85,11 @@ class RecordFormDialog(QDialog):
         # ela e tratada como um campo especial "SENHA" mais abaixo.
         if self.tabela == USUARIOS:
             colunas = [c for c in colunas if c != "SENHA_HASH"]
+        # CATEGORIA de PESSOAS nao e mais um campo de coluna comum -- agora e
+        # uma relacao N:N (uma pessoa pode ter varias categorias), tratada
+        # numa linha propria de selecao multipla logo abaixo do loop.
+        if self.tabela == PESSOAS:
+            colunas = [c for c in colunas if c != "CATEGORIA"]
 
         # Uma lista de campos pode ser mais alta do que a tela -- por isso o
         # formulario fica dentro de uma area com barra de rolagem.
@@ -100,6 +107,14 @@ class RecordFormDialog(QDialog):
             rotulo.setBuddy(widget)  # liga o rotulo ao campo, pra leitores de tela anunciarem o nome certo
             form.addRow(rotulo, widget)
             self._widgets[coluna] = widget
+
+        if self.tabela == PESSOAS:
+            opcoes_categoria = categorias.listar_categorias(self.conn)
+            marcadas = self.registro.get("CATEGORIAS") or []
+            self._widget_categorias = SelecaoMultiplaLista(opcoes_categoria, marcadas)
+            rotulo_categorias = QLabel("Categorias")
+            rotulo_categorias.setBuddy(self._widget_categorias)
+            form.addRow(rotulo_categorias, self._widget_categorias)
 
         if self.tabela == USUARIOS:
             campo_senha = CampoSenha()
@@ -145,27 +160,6 @@ class RecordFormDialog(QDialog):
                 indice = combo.findData(valor_atual)
                 if indice >= 0:
                     combo.setCurrentIndex(indice)
-            return combo
-
-        # CATEGORIA de PESSOAS e outro caso especial: em vez de texto livre
-        # (onde cada um digitava do jeito que queria, ex.: "Presidente" vs
-        # "presidentes"), vira uma lista fechada com as categorias
-        # cadastradas na tela "Categorias..." da barra lateral (db/categorias.py).
-        if coluna == "CATEGORIA" and self.tabela == PESSOAS:
-            combo = QComboBox()
-            _limitar_largura_combo(combo)
-            combo.addItem("(nenhuma)", None)
-            for opcao in categorias.listar_categorias(self.conn):
-                combo.addItem(opcao, opcao)
-            if valor_atual:
-                indice = combo.findData(valor_atual)
-                if indice < 0:
-                    # Categoria de um registro antigo que nao esta mais na
-                    # lista configurada -- mantem visivel em vez de trocar
-                    # o valor sem avisar ninguem so por abrir o formulario.
-                    combo.addItem(str(valor_atual), valor_atual)
-                    indice = combo.count() - 1
-                combo.setCurrentIndex(indice)
             return combo
 
         tipo, opcoes = field_types.tipo_do_campo(self.conn, self.tabela, coluna)
@@ -250,7 +244,7 @@ class RecordFormDialog(QDialog):
 
     def _valor_do_widget(self, coluna: str, widget: QWidget):
         if isinstance(widget, QComboBox):
-            usa_dado_interno = coluna == "ID_EMPRESA" or (coluna == "CATEGORIA" and self.tabela == PESSOAS)
+            usa_dado_interno = coluna == "ID_EMPRESA"
             return widget.currentData() if usa_dado_interno else widget.currentText()
         if isinstance(widget, QDateEdit):
             if widget.property("comecou_vazio"):
@@ -268,9 +262,16 @@ class RecordFormDialog(QDialog):
                 continue  # senha em branco ao editar = "nao mudar a senha"
             dados[coluna] = valor
         self._dados = dados
+        if self._widget_categorias is not None:
+            self._categorias_selecionadas = self._widget_categorias.selecionados()
         self.accept()
 
     def resultado(self) -> dict | None:
         """Devolve o dicionario {campo: valor} preenchido, depois que o
         dialogo foi aceito (Salvar). None se o usuario cancelou."""
         return self._dados
+
+    def resultado_categorias(self) -> list[str] | None:
+        """Categorias marcadas na tela (so existe pra PESSOAS) -- None se a
+        tabela nao tiver esse campo ou se o dialogo foi cancelado."""
+        return self._categorias_selecionadas

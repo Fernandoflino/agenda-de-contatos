@@ -16,6 +16,8 @@ Duas categorias de tabela:
 """
 from __future__ import annotations
 
+import json
+
 # Nomes das tabelas, guardados em constantes pra nao espalhar strings soltas
 # (e escritas erradas) pelo resto do codigo.
 APP_METADATA = "app_metadata"           # guarda "segredos"/config tecnica (ex: a chave usada no hash de senha)
@@ -29,6 +31,8 @@ APP_BRANDING = "app_branding"           # nome do painel, logotipo e cor escolhi
 APP_TABLE_LABELS = "app_table_labels"   # apelido de exibicao de cada tabela (ver mais abaixo)
 APP_ANOTACOES = "app_anotacoes"         # anotacoes livres por registro (ver db/anotacoes.py)
 APP_USER_PREFS = "app_user_prefs"       # filtros/larguras que CADA USUARIO deixou numa tabela (ver db/preferencias.py)
+APP_CATEGORIAS = "app_categorias"       # lista mestre de categorias de PESSOAS (ver db/categorias.py)
+APP_PESSOAS_CATEGORIAS = "app_pessoas_categorias"  # vinculo N:N entre PESSOAS e app_categorias
 USUARIOS = "USUARIOS"                   # quem pode fazer login no programa
 EMPRESAS = "EMPRESAS"                   # as empresas associadas (a tabela "mae")
 PESSOAS = "PESSOAS"                     # os contatos (presidentes, diretores etc.), ligados a uma empresa
@@ -47,6 +51,8 @@ RESERVED_TABLES = {
     APP_TABLE_LABELS,
     APP_ANOTACOES,
     APP_USER_PREFS,
+    APP_CATEGORIAS,
+    APP_PESSOAS_CATEGORIAS,
 }
 
 # Estas 3 tabelas sao "especiais": boa parte do programa (login, resolucao de
@@ -193,6 +199,27 @@ CREATE TABLE "{PESSOAS}" (
 );
 """
 
+# --- Categorias de PESSOAS: relacao N:N (uma pessoa pode ter varias) ---
+# app_categorias e a lista mestre (nome + ordem de exibicao); app_pessoas_categorias
+# e so a tabela de vinculo, ligando cada pessoa as categorias que ela tem.
+# A antiga coluna PESSOAS.CATEGORIA (TEXT, uma so por pessoa) continua existindo
+# no banco por compatibilidade/seguranca, mas fica vestigial -- ninguem mais
+# le nem escreve nela; ver migrar_schema_se_necessario() pra migracao dos
+# dados antigos.
+_DDL_CATEGORIAS = f"""
+CREATE TABLE {APP_CATEGORIAS} (
+    "ID" INTEGER PRIMARY KEY,
+    "NOME" TEXT NOT NULL UNIQUE,
+    "ORDEM" INTEGER NOT NULL
+);
+
+CREATE TABLE {APP_PESSOAS_CATEGORIAS} (
+    "PESSOA_ID" INTEGER NOT NULL REFERENCES "{PESSOAS}"("ID") ON DELETE CASCADE,
+    "CATEGORIA_ID" INTEGER NOT NULL REFERENCES {APP_CATEGORIAS}("ID") ON DELETE CASCADE,
+    PRIMARY KEY ("PESSOA_ID", "CATEGORIA_ID")
+);
+"""
+
 
 def criar_schema_inicial(conn) -> None:
     """Executa todo o SQL acima de uma vez, criando um banco novo do zero.
@@ -204,6 +231,7 @@ def criar_schema_inicial(conn) -> None:
     conn.executescript(_DDL_INTERNAS)
     conn.executescript(_DDL_EMPRESAS)
     conn.executescript(_DDL_PESSOAS)
+    conn.executescript(_DDL_CATEGORIAS)
 
     # Guarda a versao do schema, pra o programa saber no futuro se esse
     # arquivo precisa de algum ajuste automatico antes de ser aberto.
@@ -303,6 +331,92 @@ def migrar_schema_se_necessario(conn) -> None:
             # nao da pra saber retroativamente "de qual aba" cada um veio).
             conn.execute(f'ALTER TABLE "{PESSOAS}" ADD COLUMN "CATEGORIA" TEXT')
             mudou = True
+
+    if APP_CATEGORIAS not in tabelas_existentes:
+        # Bancos criados antes de categoria virar uma relacao N:N -- cria as
+        # duas tabelas novas e, so nesse momento (nunca mais de novo depois),
+        # migra os dados que ja existiam: a lista configurada em
+        # app_field_types e os valores ja usados na coluna PESSOAS.CATEGORIA
+        # (que continua existindo no banco, so que vestigial a partir daqui).
+        conn.execute(f"""
+            CREATE TABLE {APP_CATEGORIAS} (
+                "ID" INTEGER PRIMARY KEY,
+                "NOME" TEXT NOT NULL UNIQUE,
+                "ORDEM" INTEGER NOT NULL
+            )
+        """)
+        conn.execute(f"""
+            CREATE TABLE {APP_PESSOAS_CATEGORIAS} (
+                "PESSOA_ID" INTEGER NOT NULL REFERENCES "{PESSOAS}"("ID") ON DELETE CASCADE,
+                "CATEGORIA_ID" INTEGER NOT NULL REFERENCES {APP_CATEGORIAS}("ID") ON DELETE CASCADE,
+                PRIMARY KEY ("PESSOA_ID", "CATEGORIA_ID")
+            )
+        """)
+        mudou = True
+
+        # 1) Junta os nomes de categoria do JSON configurado (opcoes) com os
+        # valores distintos que ja apareciam nos contatos -- sem diferenciar
+        # maiuscula/minuscula, pra "Presidente" e "presidente" nao virarem
+        # duas categorias separadas (fica a grafia que apareceu primeiro).
+        nomes_categoria: list[str] = []
+        vistos_lower: set[str] = set()
+
+        row_opcoes = conn.execute(
+            f"SELECT opcoes FROM {APP_FIELD_TYPES} WHERE tabela = ? AND coluna = 'CATEGORIA'", (PESSOAS,)
+        ).fetchone()
+        if row_opcoes and row_opcoes[0]:
+            try:
+                opcoes = json.loads(row_opcoes[0])
+            except (json.JSONDecodeError, TypeError):
+                opcoes = None
+            if isinstance(opcoes, list):
+                for opcao in opcoes:
+                    nome = str(opcao).strip()
+                    if nome and nome.lower() not in vistos_lower:
+                        nomes_categoria.append(nome)
+                        vistos_lower.add(nome.lower())
+
+        if PESSOAS in tabelas_existentes:
+            colunas_pessoas_atuais = {row[1] for row in conn.execute(f'PRAGMA table_info("{PESSOAS}")')}
+            if "CATEGORIA" in colunas_pessoas_atuais:
+                cur = conn.execute(
+                    f'SELECT DISTINCT "CATEGORIA" FROM "{PESSOAS}" '
+                    f'WHERE "CATEGORIA" IS NOT NULL AND "CATEGORIA" != \'\' ORDER BY "CATEGORIA"'
+                )
+                for (valor,) in cur.fetchall():
+                    nome = str(valor).strip()
+                    if nome and nome.lower() not in vistos_lower:
+                        nomes_categoria.append(nome)
+                        vistos_lower.add(nome.lower())
+
+        # 2) Cria cada categoria (preservando a ordem acima) e guarda o ID
+        # gerado, indexado por nome em minusculo pra resolver o vinculo de
+        # cada pessoa no passo seguinte independente de diferenca de caixa.
+        ids_por_nome_lower: dict[str, int] = {}
+        for posicao, nome in enumerate(nomes_categoria):
+            cur = conn.execute(
+                f'INSERT INTO {APP_CATEGORIAS} ("NOME", "ORDEM") VALUES (?, ?)', (nome, posicao)
+            )
+            ids_por_nome_lower[nome.lower()] = cur.lastrowid
+
+        # 3) Vincula cada pessoa que ja tinha uma CATEGORIA preenchida a essa
+        # categoria mestre correspondente.
+        if PESSOAS in tabelas_existentes and ids_por_nome_lower:
+            colunas_pessoas_atuais = {row[1] for row in conn.execute(f'PRAGMA table_info("{PESSOAS}")')}
+            if "CATEGORIA" in colunas_pessoas_atuais:
+                cur = conn.execute(
+                    f'SELECT "ID", "CATEGORIA" FROM "{PESSOAS}" '
+                    f'WHERE "CATEGORIA" IS NOT NULL AND "CATEGORIA" != \'\''
+                )
+                vinculos = [
+                    (pessoa_id, ids_por_nome_lower[str(categoria).strip().lower()])
+                    for pessoa_id, categoria in cur.fetchall()
+                    if str(categoria).strip().lower() in ids_por_nome_lower
+                ]
+                conn.executemany(
+                    f'INSERT OR IGNORE INTO {APP_PESSOAS_CATEGORIAS} ("PESSOA_ID", "CATEGORIA_ID") VALUES (?, ?)',
+                    vinculos,
+                )
 
     if mudou:
         conn.commit()

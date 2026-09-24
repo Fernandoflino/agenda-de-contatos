@@ -1,13 +1,23 @@
 """
 Pecas de interface pequenas e reutilizaveis, que nao se encaixam em nenhuma
-tela especifica -- por enquanto, so o campo de senha com a opcao de
-"mostrar/ocultar" (pedido explicito do usuario), pra poder conferir o que
-foi digitado antes de confirmar um login ou cadastrar uma senha nova.
+tela especifica: o campo de senha com a opcao de "mostrar/ocultar", e dois
+widgets de selecao MULTIPLA (marcar varios itens de uma lista fixa) usados
+pelas categorias de contato, que agora podem ser mais de uma por pessoa.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLineEdit, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QStandardItem, QStandardItemModel
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QCheckBox,
+    QComboBox,
+    QHBoxLayout,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QWidget,
+)
 
 
 class CampoSenha(QWidget):
@@ -57,3 +67,112 @@ class CampoSenha(QWidget):
 
     def setFocus(self) -> None:  # noqa: A003 (mesmo nome do metodo original do Qt, de proposito)
         self._campo.setFocus()
+
+
+class SelecaoMultiplaLista(QListWidget):
+    """Uma lista onde cada item tem uma caixinha de marcar do lado, em vez
+    de so uma linha "selecionada" -- usada no formulario de contato pra
+    escolher VARIAS categorias ao mesmo tempo (o combo de escolha unica de
+    antes so deixava marcar uma).
+
+    Valores marcados que nao estao mais entre `opcoes` (ex.: uma categoria
+    que essa pessoa tinha e que foi excluida da lista mestre depois) ficam
+    visiveis mesmo assim, com um aviso no texto -- pra nao "sumir"
+    silenciosamente uma informacao que so seria perdida de verdade se
+    alguem salvasse o formulario sem reparar.
+    """
+
+    def __init__(self, opcoes: list[str], marcados: list[str] | None = None, parent=None):
+        super().__init__(parent)
+        self.setSelectionMode(QAbstractItemView.NoSelection)
+        self.setMaximumHeight(150)
+
+        marcados_set = set(marcados or [])
+        for nome in opcoes:
+            item = QListWidgetItem(nome)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if nome in marcados_set else Qt.Unchecked)
+            self.addItem(item)
+
+        for nome in marcados_set:
+            if not self.findItems(nome, Qt.MatchExactly):
+                item = QListWidgetItem(f"{nome} (categoria removida)")
+                item.setData(Qt.UserRole, nome)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Checked)
+                self.addItem(item)
+
+    def selecionados(self) -> list[str]:
+        resultado = []
+        for i in range(self.count()):
+            item = self.item(i)
+            if item.checkState() == Qt.Checked:
+                resultado.append(item.data(Qt.UserRole) or item.text())
+        return resultado
+
+
+class ComboMultiSelecao(QComboBox):
+    """Um combo (dropdown) onde cada item da lista tem uma caixinha de
+    marcar, permitindo escolher VARIOS valores sem precisar de uma lista
+    grande sempre visivel -- usado no filtro por categoria da tela de
+    contatos, que agora pode ter mais de um valor marcado ao mesmo tempo.
+
+    O texto mostrado no combo (quando fechado) resume a selecao: "(todas)"
+    quando nada esta marcado, o nome sozinho quando so um item esta
+    marcado, ou "N categorias selecionadas" caso contrario.
+    """
+
+    selecaoMudou = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setModel(QStandardItemModel(self))
+        self.setEditable(True)
+        self.lineEdit().setReadOnly(True)
+        self.view().pressed.connect(self._alternar_item)
+        self._fechar_popup = True
+        self._atualizar_texto()
+
+    def definir_opcoes(self, opcoes: list[str], marcados: list[str] | None = None) -> None:
+        marcados_set = set(marcados if marcados is not None else self.selecionados())
+        modelo = self.model()
+        modelo.clear()
+        for nome in opcoes:
+            item = QStandardItem(nome)
+            item.setCheckable(True)
+            item.setCheckState(Qt.Checked if nome in marcados_set else Qt.Unchecked)
+            modelo.appendRow(item)
+        self._atualizar_texto()
+
+    def selecionados(self) -> list[str]:
+        modelo = self.model()
+        return [
+            modelo.item(i).text()
+            for i in range(modelo.rowCount())
+            if modelo.item(i).checkState() == Qt.Checked
+        ]
+
+    def _alternar_item(self, index) -> None:
+        item = self.model().itemFromIndex(index)
+        item.setCheckState(Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked)
+        self._atualizar_texto()
+        self._fechar_popup = False
+        self.selecaoMudou.emit()
+
+    def _atualizar_texto(self) -> None:
+        marcados = self.selecionados()
+        if not marcados:
+            texto = "(todas)"
+        elif len(marcados) == 1:
+            texto = marcados[0]
+        else:
+            texto = f"{len(marcados)} categorias selecionadas"
+        self.lineEdit().setText(texto)
+
+    def hidePopup(self) -> None:
+        # Sem isso, o Qt fecharia o dropdown a cada clique num item -- essa
+        # flag deixa o popup aberto exatamente quando o motivo de chamar
+        # hidePopup() foi o clique que acabou de marcar/desmarcar um item.
+        if self._fechar_popup:
+            super().hidePopup()
+        self._fechar_popup = True

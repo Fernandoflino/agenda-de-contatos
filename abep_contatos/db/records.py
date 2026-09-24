@@ -24,7 +24,7 @@ import sqlite3
 
 from . import auth, log
 from .identifiers import quote_ident, validar_identificador
-from .schema import EMPRESAS, USUARIOS
+from .schema import APP_CATEGORIAS, APP_PESSOAS_CATEGORIAS, EMPRESAS, PESSOAS, USUARIOS
 from .tables import get_schema
 
 
@@ -80,6 +80,29 @@ def get_records(conn: sqlite3.Connection, tabela: str) -> list[dict]:
                 r["_EMPRESA_BUSCA"] = " ".join(
                     filter(None, [info["sigla"], info["sigla_empresa"], info["empresa"]])
                 )
+
+    # PESSOAS pode ter VARIAS categorias (relacao N:N -- ver db/categorias.py).
+    # Busca todos os vinculos de uma vez so (1 JOIN, nao 1 consulta por
+    # pessoa) e anexa em cada registro:
+    # - CATEGORIAS: lista de nomes, fonte de verdade pro formulario/filtro/
+    #   exportacao mesclada.
+    # - CATEGORIA: as mesmas, juntas numa string "A, B" -- mantido so pra
+    #   compatibilidade com os lugares que ainda leem esse campo como texto
+    #   simples (coluna extra da tabela, exportacao simples, ordenacao).
+    if tabela == PESSOAS:
+        mapa_categorias: dict[int, list[str]] = {}
+        cur_cat = conn.execute(f"""
+            SELECT pc."PESSOA_ID", c."NOME"
+            FROM {APP_PESSOAS_CATEGORIAS} pc
+            JOIN {APP_CATEGORIAS} c ON c."ID" = pc."CATEGORIA_ID"
+            ORDER BY c."ORDEM"
+        """)
+        for pessoa_id, nome in cur_cat.fetchall():
+            mapa_categorias.setdefault(pessoa_id, []).append(nome)
+        for r in registros:
+            nomes = mapa_categorias.get(r.get("ID"), [])
+            r["CATEGORIAS"] = nomes
+            r["CATEGORIA"] = ", ".join(nomes)
 
     # Regra de seguranca: a senha (mesmo em hash) nunca deve chegar na tela.
     if tabela == USUARIOS:
