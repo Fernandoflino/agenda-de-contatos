@@ -70,6 +70,8 @@ class SheetManagerDialog(QDialog):
             ("Nova...", self._nova_tabela, None),
             ("Renomear...", self._renomear_tabela, "secundario"),
             ("Rotulo de exibicao...", self._definir_rotulo, "secundario"),
+            ("Mover para cima", lambda: self._mover_tabela(-1), "secundario"),
+            ("Mover para baixo", lambda: self._mover_tabela(1), "secundario"),
             ("Excluir", self._excluir_tabela, "perigo"),
         ):
             botao = QPushButton(texto)
@@ -93,6 +95,8 @@ class SheetManagerDialog(QDialog):
             ("Adicionar...", self._adicionar_campo, None),
             ("Renomear...", self._renomear_campo, "secundario"),
             ("Tipo...", self._configurar_tipo_campo, "secundario"),
+            ("Mover para cima", lambda: self._mover_campo(-1), "secundario"),
+            ("Mover para baixo", lambda: self._mover_campo(1), "secundario"),
             ("Remover", self._remover_campo, "perigo"),
         ):
             botao = QPushButton(texto)
@@ -120,7 +124,7 @@ class SheetManagerDialog(QDialog):
     def _recarregar_tabelas(self, selecionar: str | None = None) -> None:
         self.lista_tabelas.blockSignals(True)
         self.lista_tabelas.clear()
-        self.lista_tabelas.addItems(tables.list_data_sheets(self.conn))
+        self.lista_tabelas.addItems(tables.get_table_order(self.conn))
         self.lista_tabelas.blockSignals(False)
         if self.lista_tabelas.count():
             indice = 0
@@ -146,7 +150,7 @@ class SheetManagerDialog(QDialog):
         self.grupo_campos.setTitle(f"Campos de {tabela}" if tabela else "Campos")
         if not tabela:
             return
-        for coluna in tables.get_schema(self.conn, tabela):
+        for coluna in tables.get_column_order(self.conn, tabela):
             if coluna == "ID":
                 continue
             tipo, _ = field_types.tipo_do_campo(self.conn, tabela, coluna)
@@ -203,9 +207,9 @@ class SheetManagerDialog(QDialog):
     def _definir_rotulo(self) -> None:
         """Muda so o NOME DE EXIBICAO da tabela no menu lateral (nao mexe no
         nome real dela no banco) -- e o jeito de dar outro nome pra EMPRESAS/
-        PESSOAS/USUARIOS (que nao podem ser renomeadas de verdade) ou de
-        controlar a ORDEM das tabelas no menu (ex.: prefixando com numeros:
-        "01 - Contatos", "02 - Empresas")."""
+        PESSOAS/USUARIOS (que nao podem ser renomeadas de verdade). Pra
+        controlar a ORDEM das tabelas no menu, use os botoes "Mover para
+        cima"/"Mover para baixo" logo abaixo da lista."""
         atual = self._tabela_selecionada()
         if not atual:
             return
@@ -218,6 +222,19 @@ class SheetManagerDialog(QDialog):
         if not ok:
             return
         settings.definir_rotulo_tabela(self.conn, atual, novo_rotulo)
+
+    def _mover_tabela(self, direcao: int) -> None:
+        """Troca a tabela selecionada de posicao com a vizinha (direcao -1 =
+        pra cima, +1 = pra baixo) e salva a nova ordem."""
+        indice_atual = self.lista_tabelas.currentRow()
+        novo_indice = indice_atual + direcao
+        if indice_atual < 0 or not (0 <= novo_indice < self.lista_tabelas.count()):
+            return
+
+        ordem = [self.lista_tabelas.item(i).text() for i in range(self.lista_tabelas.count())]
+        ordem[indice_atual], ordem[novo_indice] = ordem[novo_indice], ordem[indice_atual]
+        tables.set_table_order(self.conn, ordem)
+        self._recarregar_tabelas(selecionar=ordem[novo_indice])
 
     def _excluir_tabela(self) -> None:
         atual = self._tabela_selecionada()
@@ -303,6 +320,27 @@ class SheetManagerDialog(QDialog):
 
         field_types.definir_tipo_campo(self.conn, tabela, campo, tipo, opcoes)
         self._recarregar_campos()
+
+    def _mover_campo(self, direcao: int) -> None:
+        """Troca o campo selecionado de posicao com o vizinho (direcao -1 =
+        pra cima, +1 = pra baixo) e salva a nova ordem de exibicao."""
+        tabela = self._tabela_selecionada()
+        if not tabela:
+            return
+        indice_atual = self.lista_campos.currentRow()
+        novo_indice = indice_atual + direcao
+        if indice_atual < 0 or not (0 <= novo_indice < self.lista_campos.count()):
+            return
+
+        ordem = [self.lista_campos.item(i).data(Qt.UserRole) for i in range(self.lista_campos.count())]
+        campo_movido = ordem[indice_atual]
+        ordem[indice_atual], ordem[novo_indice] = ordem[novo_indice], ordem[indice_atual]
+        tables.set_column_order(self.conn, tabela, ordem)
+        self._recarregar_campos()
+        for i in range(self.lista_campos.count()):
+            if self.lista_campos.item(i).data(Qt.UserRole) == campo_movido:
+                self.lista_campos.setCurrentRow(i)
+                break
 
     def _remover_campo(self) -> None:
         tabela = self._tabela_selecionada()

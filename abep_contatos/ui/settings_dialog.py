@@ -2,6 +2,9 @@
 Tela de CONFIGURACOES: e aqui que o "tudo tem que ser personalizavel" pedido
 pelo usuario vira controles concretos na tela --
 
+- Categorias, tabelas e campos, e historico (abrem os dialogos dedicados de
+  cada um, so que agora tudo agrupado numa aba so em vez de espalhado pela
+  sidebar).
 - Nome do painel e logotipo (aparecem na tela de login e na janela principal).
 - Cor de destaque (usada nos botoes principais e itens selecionados) e o
   modo claro/escuro.
@@ -37,6 +40,9 @@ from PySide6.QtWidgets import (
 from db import settings
 from db.tables import get_column_order, list_data_sheets
 from ui import field_types
+from ui.categorias_dialog import CategoriasDialog
+from ui.historico_dialog import HistoricoDialog
+from ui.sheet_manager_dialog import SheetManagerDialog
 from ui.theme import marcar_variante
 from ui.window_utils import preparar_janela
 
@@ -71,9 +77,10 @@ def _redimensionar_para_bytes_png(caminho_imagem: str) -> bytes | None:
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, conn: sqlite3.Connection, parent=None):
+    def __init__(self, conn: sqlite3.Connection, usuario: str, parent=None):
         super().__init__(parent)
         self.conn = conn
+        self.usuario = usuario
         self._novo_logo_bytes: bytes | None = None
         self._logo_removido = False
 
@@ -85,6 +92,7 @@ class SettingsDialog(QDialog):
         layout.setSpacing(12)
 
         abas = QTabWidget()
+        abas.addTab(self._criar_aba_gerenciamento(), "Gerenciamento")
         abas.addTab(self._criar_aba_identidade(), "Identidade e tema")
         abas.addTab(self._criar_aba_campos_resumo(), "Campos da lista")
         layout.addWidget(abas, stretch=1)
@@ -97,6 +105,48 @@ class SettingsDialog(QDialog):
         layout.addWidget(botoes)
 
         self._carregar_identidade_atual()
+
+    # -- aba Gerenciamento (categorias, tabelas e campos, historico) ---------
+
+    def _criar_aba_gerenciamento(self) -> QWidget:
+        pagina = QWidget()
+        layout = QVBoxLayout(pagina)
+        layout.setSpacing(10)
+
+        explicacao = QLabel(
+            "Gerencie as categorias, as tabelas e campos do banco de dados, "
+            "e veja o histórico de alterações."
+        )
+        explicacao.setProperty("papel", "subtitulo")
+        explicacao.setWordWrap(True)
+        layout.addWidget(explicacao)
+
+        for texto, funcao in (
+            ("Categorias...", self._abrir_categorias),
+            ("Tabelas e campos...", self._abrir_gerenciador_tabelas),
+            ("Histórico...", self._abrir_historico),
+        ):
+            botao = QPushButton(texto)
+            marcar_variante(botao, "secundario")
+            botao.clicked.connect(funcao)
+            layout.addWidget(botao)
+
+        layout.addStretch()
+        return pagina
+
+    def _abrir_categorias(self) -> None:
+        CategoriasDialog(self.conn, self.usuario, parent=self).exec()
+
+    def _abrir_gerenciador_tabelas(self) -> None:
+        SheetManagerDialog(self.conn, self.usuario, parent=self).exec()
+        # a tabela usada na aba "Campos da lista" pode ter mudado
+        self.combo_tabela_resumo.clear()
+        self.combo_tabela_resumo.addItems(list_data_sheets(self.conn))
+        if self.combo_tabela_resumo.count():
+            self._recarregar_campos_resumo(self.combo_tabela_resumo.currentText())
+
+    def _abrir_historico(self) -> None:
+        HistoricoDialog(self.conn, parent=self).exec()
 
     # -- aba Identidade (nome, cor, tema, logotipo) --------------------------
 

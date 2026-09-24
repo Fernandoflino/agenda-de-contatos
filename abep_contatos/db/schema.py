@@ -22,6 +22,7 @@ APP_METADATA = "app_metadata"           # guarda "segredos"/config tecnica (ex: 
 APP_LOG = "app_log"                     # historico de tudo que foi criado/editado/excluido
 APP_LOGIN_ATTEMPTS = "app_login_attempts"  # controla tentativas de login erradas (protecao contra forca bruta)
 APP_COLUMN_ORDER = "app_column_order"   # em que ordem as colunas de cada tabela aparecem na tela
+APP_TABLE_ORDER = "app_table_order"     # em que ordem as tabelas aparecem na sidebar/na tela de "Gerenciar tabelas"
 APP_FIELD_TYPES = "app_field_types"     # que "tipo" cada campo tem (email, telefone, data, etc.)
 APP_LIST_DISPLAY = "app_list_display"   # quais campos aparecem resumidos na lista de contatos
 APP_BRANDING = "app_branding"           # nome do painel, logotipo e cor escolhidos pelo usuario
@@ -39,6 +40,7 @@ RESERVED_TABLES = {
     APP_LOG,
     APP_LOGIN_ATTEMPTS,
     APP_COLUMN_ORDER,
+    APP_TABLE_ORDER,
     APP_FIELD_TYPES,
     APP_LIST_DISPLAY,
     APP_BRANDING,
@@ -89,6 +91,11 @@ CREATE TABLE {APP_COLUMN_ORDER} (
     coluna TEXT NOT NULL,
     posicao INTEGER NOT NULL,
     PRIMARY KEY (tabela, coluna)
+);
+
+CREATE TABLE {APP_TABLE_ORDER} (
+    tabela TEXT PRIMARY KEY,
+    posicao INTEGER NOT NULL
 );
 
 CREATE TABLE {APP_FIELD_TYPES} (
@@ -268,6 +275,19 @@ def migrar_schema_se_necessario(conn) -> None:
                 tabela TEXT NOT NULL,
                 dados TEXT,
                 PRIMARY KEY (usuario, tabela)
+            )
+        """)
+        mudou = True
+
+    if APP_TABLE_ORDER not in tabelas_existentes:
+        # Bancos criados antes de existir "ordem manual" das tabelas -- so
+        # cria a tabela vazia (sem nenhuma posicao configurada ainda, as
+        # tabelas continuam aparecendo em ordem alfabetica ate o usuario
+        # reordenar alguma pela tela de "Gerenciar tabelas").
+        conn.execute(f"""
+            CREATE TABLE {APP_TABLE_ORDER} (
+                tabela TEXT PRIMARY KEY,
+                posicao INTEGER NOT NULL
             )
         """)
         mudou = True

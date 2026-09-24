@@ -12,6 +12,7 @@ pra rodar em ambientes automatizados como este.
 import os
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QComboBox
 
 from db import auth, connection, importer, records
@@ -371,13 +372,47 @@ def test_sheet_manager_dialog_constroi(banco_com_dados):
     assert dialogo.lista_tabelas.count() > 0
 
 
+def test_sheet_manager_dialog_mover_campo_troca_ordem_e_persiste(banco_com_dados):
+    from db.schema import PESSOAS
+    from db.tables import get_column_order
+
+    dialogo = SheetManagerDialog(banco_com_dados, "admin")
+    indice_pessoas = dialogo.lista_tabelas.findItems(PESSOAS, Qt.MatchExactly)
+    dialogo.lista_tabelas.setCurrentItem(indice_pessoas[0])
+
+    primeiro_campo = dialogo.lista_campos.item(0).data(Qt.UserRole)
+    segundo_campo = dialogo.lista_campos.item(1).data(Qt.UserRole)
+
+    dialogo.lista_campos.setCurrentRow(0)
+    dialogo._mover_campo(1)
+
+    assert dialogo.lista_campos.item(0).data(Qt.UserRole) == segundo_campo
+    assert dialogo.lista_campos.item(1).data(Qt.UserRole) == primeiro_campo
+    assert get_column_order(banco_com_dados, PESSOAS)[:2] == [segundo_campo, primeiro_campo]
+
+
+def test_sheet_manager_dialog_mover_tabela_troca_ordem_e_persiste(banco_com_dados):
+    from db.tables import get_table_order
+
+    dialogo = SheetManagerDialog(banco_com_dados, "admin")
+    primeira_tabela = dialogo.lista_tabelas.item(0).text()
+    segunda_tabela = dialogo.lista_tabelas.item(1).text()
+
+    dialogo.lista_tabelas.setCurrentRow(0)
+    dialogo._mover_tabela(1)
+
+    assert dialogo.lista_tabelas.item(0).text() == segunda_tabela
+    assert dialogo.lista_tabelas.item(1).text() == primeira_tabela
+    assert get_table_order(banco_com_dados)[:2] == [segunda_tabela, primeira_tabela]
+
+
 def test_export_dialog_constroi(banco_com_dados):
     dialogo = ExportDialog(banco_com_dados, tabela_padrao=PESSOAS)
     assert dialogo.combo_tabela.count() > 0
 
 
 def test_settings_dialog_constroi(banco_com_dados):
-    dialogo = SettingsDialog(banco_com_dados)
+    dialogo = SettingsDialog(banco_com_dados, "admin")
     assert dialogo.campo_nome.text()
 
 
@@ -386,7 +421,7 @@ def test_settings_dialog_campo_extra_carrega_sugestao_padrao(banco_com_dados):
     lista" vem pre-selecionado com a sugestao automatica (o mesmo campo que
     ui/lista_registros_view.py usaria como coluna extra) -- pra PESSOAS
     (que tem ID_EMPRESA), isso e "Empresa"."""
-    dialogo = SettingsDialog(banco_com_dados)
+    dialogo = SettingsDialog(banco_com_dados, "admin")
     dialogo.combo_tabela_resumo.setCurrentText(PESSOAS)
 
     assert dialogo.combo_campo_extra.count() > 1  # "(nenhum)" + pelo menos 1 campo real
@@ -397,7 +432,7 @@ def test_settings_dialog_campo_extra_carrega_sugestao_padrao(banco_com_dados):
 def test_settings_dialog_salvar_campo_extra_persiste_no_banco(banco_com_dados):
     from db import settings
 
-    dialogo = SettingsDialog(banco_com_dados)
+    dialogo = SettingsDialog(banco_com_dados, "admin")
     dialogo.combo_tabela_resumo.setCurrentText(PESSOAS)
 
     indice_cargo = dialogo.combo_campo_extra.findText("Cargo")
@@ -415,7 +450,7 @@ def test_settings_dialog_salvar_campo_extra_nenhum_limpa_configuracao(banco_com_
 
     settings.salvar_campos_resumo(banco_com_dados, PESSOAS, [["CARGO"]])
 
-    dialogo = SettingsDialog(banco_com_dados)
+    dialogo = SettingsDialog(banco_com_dados, "admin")
     dialogo.combo_tabela_resumo.setCurrentText(PESSOAS)
     assert dialogo.combo_campo_extra.currentData() == "CARGO"
 
@@ -484,3 +519,18 @@ def test_main_window_troca_entre_painel_e_tabela_e_volta(banco_com_dados):
 
     janela.lista_navegacao.setCurrentRow(0)  # de volta pro Painel
     assert isinstance(janela.paginas.currentWidget(), DashboardView)
+
+
+def test_main_window_sidebar_segue_ordem_manual_das_tabelas(banco_com_dados):
+    """A ordem das tabelas no menu lateral segue a ordem manual configurada
+    pela tela de "Gerenciar tabelas" (botoes mover pra cima/baixo), nao mais
+    a ordem alfabetica do rotulo."""
+    from db.tables import set_table_order
+
+    set_table_order(banco_com_dados, ["USUARIOS", "PESSOAS", "EMPRESAS"])
+
+    usuario = auth.login(banco_com_dados, "admin", "senha123")
+    janela = MainWindow(banco_com_dados, usuario, "teste.abepdb")
+
+    nomes_em_ordem = [janela.lista_navegacao.item(i).data(Qt.UserRole) for i in range(1, janela.lista_navegacao.count())]
+    assert nomes_em_ordem == ["USUARIOS", PESSOAS, EMPRESAS]

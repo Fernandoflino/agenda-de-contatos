@@ -98,3 +98,15 @@ def test_column_order_configuravel(conn):
     tables.add_column(conn, "PESSOAS", "NOVO_CAMPO")
     ordem = tables.get_column_order(conn, "PESSOAS")
     assert ordem[-1] == "NOVO_CAMPO"
+
+
+def test_table_order_configuravel(conn):
+    tabelas_fisicas = tables.list_data_sheets(conn)
+    ordem_custom = list(reversed(tabelas_fisicas))
+    tables.set_table_order(conn, ordem_custom)
+    assert tables.get_table_order(conn) == ordem_custom
+
+    # tabela nova sem posicao configurada cai no final
+    tables.create_data_sheet(conn, "FORNECEDORES")
+    ordem = tables.get_table_order(conn)
+    assert ordem[-1] == "FORNECEDORES"

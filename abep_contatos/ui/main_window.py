@@ -35,14 +35,11 @@ from PySide6.QtWidgets import (
 
 from db import auth, settings
 from db.schema import PESSOAS
-from db.tables import list_data_sheets
-from ui.categorias_dialog import CategoriasDialog
+from db.tables import get_table_order
 from ui.dashboard_view import DashboardView
 from ui.export_dialog import ExportDialog
-from ui.historico_dialog import HistoricoDialog
 from ui.lista_registros_view import ListaRegistrosView
 from ui.settings_dialog import SettingsDialog
-from ui.sheet_manager_dialog import SheetManagerDialog
 from ui.theme import aplicar_tema, marcar_variante
 from versao import VERSAO
 
@@ -135,9 +132,6 @@ class MainWindow(QMainWindow):
         layout_utilitarios.setSpacing(6)
         for texto, funcao in (
             ("Exportar...", self._abrir_exportar),
-            ("Categorias...", self._abrir_categorias),
-            ("Tabelas e campos...", self._abrir_gerenciador_tabelas),
-            ("Histórico...", self._abrir_historico),
             ("Configurações...", self._abrir_configuracoes),
         ):
             botao = QPushButton(texto)
@@ -203,17 +197,16 @@ class MainWindow(QMainWindow):
         item_painel.setData(Qt.UserRole, _ITEM_PAINEL)
         self.lista_navegacao.addItem(item_painel)
 
-        tabelas = list_data_sheets(self.conn)
-        # A ordem no menu segue o ROTULO de exibicao de cada tabela (nao o
-        # nome real dela) -- isso deixa a pessoa usando o programa controlar
-        # a ordem do jeito que quiser, ex.: prefixando os rotulos com
-        # numeros ("01 - Contatos", "02 - Empresas"). PESSOAS mostra
+        # A ordem no menu segue a ordem manual configurada na tela de
+        # "Gerenciar tabelas" (botoes "Mover para cima"/"Mover para baixo") --
+        # tabelas que ninguem reordenou ainda aparecem no final, em ordem
+        # alfabetica do NOME real (ver db.tables.get_table_order). O TEXTO
+        # exibido continua sendo o ROTULO de cada tabela; PESSOAS mostra
         # "Contatos" por padrao ate alguem configurar outro rotulo (ver
         # db/settings.py -> obter_rotulo_tabela).
-        rotulos = {tabela: settings.obter_rotulo_tabela(self.conn, tabela) for tabela in tabelas}
-        ordenadas = sorted(tabelas, key=lambda t: rotulos[t].lower())
-        for tabela in ordenadas:
-            item = QListWidgetItem(rotulos[tabela])
+        tabelas = get_table_order(self.conn)
+        for tabela in tabelas:
+            item = QListWidgetItem(settings.obter_rotulo_tabela(self.conn, tabela))
             item.setData(Qt.UserRole, tabela)
             self.lista_navegacao.addItem(item)
 
@@ -267,26 +260,16 @@ class MainWindow(QMainWindow):
         tabela_padrao = tabela_selecionada if tabela_selecionada and tabela_selecionada != _ITEM_PAINEL else PESSOAS
         ExportDialog(self.conn, tabela_padrao=tabela_padrao, parent=self).exec()
 
-    def _abrir_categorias(self) -> None:
-        CategoriasDialog(self.conn, self.usuario_logado.usuario, parent=self).exec()
-        # Renomear/excluir categoria pode ter mudado os dados de PESSOAS --
-        # se a pagina de Contatos ja estiver aberta, recarrega ela.
-        pagina_pessoas = self._paginas_tabelas.get(PESSOAS)
-        if pagina_pessoas is not None:
-            pagina_pessoas.carregar_dados()
-
-    def _abrir_gerenciador_tabelas(self) -> None:
-        SheetManagerDialog(self.conn, self.usuario_logado.usuario, parent=self).exec()
-        self._atualizar_navegacao()  # tabelas/campos podem ter mudado
-
-    def _abrir_historico(self) -> None:
-        HistoricoDialog(self.conn, parent=self).exec()
-
     def _abrir_configuracoes(self) -> None:
-        dialogo = SettingsDialog(self.conn, parent=self)
-        if dialogo.exec():
+        dialogo = SettingsDialog(self.conn, self.usuario_logado.usuario, parent=self)
+        aceito = dialogo.exec()
+        if aceito:
             self._atualizar_identidade()
-            # os campos-resumo podem ter mudado -- recarrega a pagina visivel
-            pagina_atual = self.paginas.currentWidget()
-            if pagina_atual is not None and hasattr(pagina_atual, "carregar_dados"):
-                pagina_atual.carregar_dados()
+        # Dentro de Configuracoes da pra mexer em categorias e em tabelas e
+        # campos tambem -- entao atualiza a navegacao e a pagina visivel
+        # sempre, mesmo se o dialogo tiver sido cancelado (o que foi feito
+        # nas telas internas ja ficou gravado no banco de qualquer jeito).
+        self._atualizar_navegacao()
+        pagina_atual = self.paginas.currentWidget()
+        if pagina_atual is not None and hasattr(pagina_atual, "carregar_dados"):
+            pagina_atual.carregar_dados()

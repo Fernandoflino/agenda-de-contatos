@@ -15,7 +15,7 @@ import sqlite3
 
 from . import log
 from .identifiers import quote_ident, validar_identificador
-from .schema import APP_COLUMN_ORDER, APP_FIELD_TYPES, RESERVED_TABLES, TABELAS_PROTEGIDAS
+from .schema import APP_COLUMN_ORDER, APP_FIELD_TYPES, APP_TABLE_ORDER, RESERVED_TABLES, TABELAS_PROTEGIDAS
 
 
 def list_data_sheets(conn: sqlite3.Connection) -> list[str]:
@@ -118,6 +118,7 @@ def rename_data_sheet(conn: sqlite3.Connection, nome_atual: str, novo_nome: str,
     conn.execute(f"ALTER TABLE {quote_ident(nome_fisico_atual)} RENAME TO {quote_ident(novo_nome)}")
     conn.execute(f"UPDATE {APP_COLUMN_ORDER} SET tabela = ? WHERE tabela = ?", (novo_nome, nome_atual))
     conn.execute(f"UPDATE {APP_FIELD_TYPES} SET tabela = ? WHERE tabela = ?", (novo_nome, nome_atual))
+    conn.execute(f"UPDATE {APP_TABLE_ORDER} SET tabela = ? WHERE tabela = ?", (novo_nome, nome_atual))
     conn.commit()
     log.log_change(conn, usuario, novo_nome, "Renomear tabela", f"antes: {nome_atual}")
     return novo_nome
@@ -142,6 +143,7 @@ def delete_data_sheet(conn: sqlite3.Connection, nome: str, usuario: str = "siste
     conn.execute(f"DROP TABLE {quote_ident(nome)}")
     conn.execute(f"DELETE FROM {APP_COLUMN_ORDER} WHERE tabela = ?", (nome,))
     conn.execute(f"DELETE FROM {APP_FIELD_TYPES} WHERE tabela = ?", (nome,))
+    conn.execute(f"DELETE FROM {APP_TABLE_ORDER} WHERE tabela = ?", (nome,))
     conn.commit()
     log.log_change(conn, usuario, nome, "Excluir tabela")
 
@@ -221,5 +223,26 @@ def set_column_order(conn: sqlite3.Connection, tabela: str, colunas_em_ordem: li
     conn.executemany(
         f"INSERT INTO {APP_COLUMN_ORDER} (tabela, coluna, posicao) VALUES (?, ?, ?)",
         [(tabela, coluna, i) for i, coluna in enumerate(colunas_em_ordem)],
+    )
+    conn.commit()
+
+
+def get_table_order(conn: sqlite3.Connection) -> list[str]:
+    """Em que ordem as tabelas de dados devem aparecer (sidebar e a tela de
+    "Gerenciar tabelas e campos"). Mesma logica de get_column_order(): tabelas
+    que o usuario ainda nao reordenou aparecem no final, em ordem alfabetica."""
+    tabelas_existentes = list_data_sheets(conn)
+    cur = conn.execute(f"SELECT tabela FROM {APP_TABLE_ORDER} ORDER BY posicao")
+    configuradas = [r[0] for r in cur.fetchall() if r[0] in tabelas_existentes]
+    resto = [t for t in tabelas_existentes if t not in configuradas]
+    return configuradas + resto
+
+
+def set_table_order(conn: sqlite3.Connection, tabelas_em_ordem: list[str]) -> None:
+    """Salva a ordem de exibicao das tabelas escolhida pelo usuario."""
+    conn.execute(f"DELETE FROM {APP_TABLE_ORDER}")
+    conn.executemany(
+        f"INSERT INTO {APP_TABLE_ORDER} (tabela, posicao) VALUES (?, ?)",
+        [(tabela, i) for i, tabela in enumerate(tabelas_em_ordem)],
     )
     conn.commit()
