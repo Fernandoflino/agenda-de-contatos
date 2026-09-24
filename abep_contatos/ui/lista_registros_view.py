@@ -57,7 +57,6 @@ from ui.avatar import criar_avatar as _criar_avatar
 from ui.dialogs import confirmar_exclusao, mostrar_erro, mostrar_info
 from ui.record_form_dialog import RecordFormDialog
 from ui.theme import cor_texto_mutado, marcar_variante
-from ui.widgets import ComboMultiSelecao
 from ui.window_utils import limpar_layout
 
 _ITENS_POR_PAGINA_PADRAO = 20
@@ -274,9 +273,9 @@ class ListaRegistrosView(QWidget):
             self._popular_valor_combo_empresa(widget)
             widget.currentIndexChanged.connect(self._ao_mudar_filtro)
         elif campo == "CATEGORIA" and self.tabela == PESSOAS:
-            widget = ComboMultiSelecao()
+            widget = QComboBox()
             self._popular_valor_combo_categoria(widget)
-            widget.selecaoMudou.connect(self._ao_mudar_filtro)
+            widget.currentIndexChanged.connect(self._ao_mudar_filtro)
         else:
             widget = QLineEdit()
             widget.setPlaceholderText("valor do filtro...")
@@ -305,8 +304,16 @@ class ListaRegistrosView(QWidget):
         combo.setCurrentIndex(indice if indice >= 0 else 0)
         combo.blockSignals(False)
 
-    def _popular_valor_combo_categoria(self, combo: ComboMultiSelecao) -> None:
-        combo.definir_opcoes(categorias.listar_categorias(self.conn))
+    def _popular_valor_combo_categoria(self, combo: QComboBox) -> None:
+        atual = combo.currentData()
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem("(todas)", None)
+        for nome in categorias.listar_categorias(self.conn):
+            combo.addItem(nome, nome)
+        indice = combo.findData(atual) if atual else -1
+        combo.setCurrentIndex(indice if indice >= 0 else 0)
+        combo.blockSignals(False)
 
     def _atualizar_combo_campo_linha(self, linha: QWidget, opcoes: list[tuple[str, str]]) -> None:
         """Reconstroi as OPCOES de campo de uma linha (o esquema pode ter
@@ -330,7 +337,7 @@ class ListaRegistrosView(QWidget):
         campo = linha.combo_campo.currentData()
         if campo == "_EMPRESA_BUSCA" and isinstance(linha.widget_valor, QComboBox):
             self._popular_valor_combo_empresa(linha.widget_valor)
-        elif campo == "CATEGORIA" and self.tabela == PESSOAS and isinstance(linha.widget_valor, ComboMultiSelecao):
+        elif campo == "CATEGORIA" and self.tabela == PESSOAS and isinstance(linha.widget_valor, QComboBox):
             self._popular_valor_combo_categoria(linha.widget_valor)
 
     # -- preferencias do usuario (filtros salvos, largura do painel) --------
@@ -371,7 +378,7 @@ class ListaRegistrosView(QWidget):
             # Ignora silenciosamente um filtro salvo que nao faz mais sentido
             # (ex.: o campo foi removido em "Tabelas e campos" desde a ultima
             # vez) -- em vez de dar erro, a tela so abre sem essa linha.
-            if campo not in campos_validos or valor in (None, "", []):
+            if campo not in campos_validos or valor in (None, ""):
                 continue
 
             self._adicionar_linha_filtro()
@@ -384,10 +391,7 @@ class ListaRegistrosView(QWidget):
             linha.combo_campo.blockSignals(False)
             self._construir_widget_valor(linha)
 
-            if campo == "CATEGORIA" and self.tabela == PESSOAS and isinstance(linha.widget_valor, ComboMultiSelecao):
-                marcadas = valor if isinstance(valor, list) else []
-                linha.widget_valor.definir_opcoes(categorias.listar_categorias(self.conn), marcadas)
-            elif isinstance(linha.widget_valor, QComboBox):
+            if isinstance(linha.widget_valor, QComboBox):
                 indice_valor = linha.widget_valor.findData(valor)
                 if indice_valor >= 0:
                     linha.widget_valor.setCurrentIndex(indice_valor)
@@ -404,13 +408,8 @@ class ListaRegistrosView(QWidget):
             campo = linha.combo_campo.currentData()
             if not campo:
                 continue
-            if campo == "CATEGORIA" and self.tabela == PESSOAS and isinstance(linha.widget_valor, ComboMultiSelecao):
-                valor = linha.widget_valor.selecionados()
-            elif isinstance(linha.widget_valor, QComboBox):
-                valor = linha.widget_valor.currentData()
-            else:
-                valor = linha.widget_valor.text()
-            if valor in (None, "", []):
+            valor = linha.widget_valor.currentData() if isinstance(linha.widget_valor, QComboBox) else linha.widget_valor.text()
+            if valor in (None, ""):
                 continue
             filtros.append({"campo": campo, "valor": valor})
 
@@ -724,16 +723,15 @@ class ListaRegistrosView(QWidget):
                 if id_empresa_filtro is not None:
                     filtrados = [r for r in filtrados if r.get("ID_EMPRESA") == id_empresa_filtro]
             elif campo == "CATEGORIA" and self.tabela == PESSOAS:
-                # Um contato pode ter varias categorias -- essa linha marca
-                # varias ao mesmo tempo (ver ComboMultiSelecao), e o registro
-                # aparece se tiver QUALQUER UMA das marcadas (logica "OU"
-                # dentro dessa linha, combinada com "E" entre linhas de
-                # filtro diferentes, como o resto da tela ja faz).
-                categorias_filtro = set(linha.widget_valor.selecionados())
-                if categorias_filtro:
-                    filtrados = [
-                        r for r in filtrados if categorias_filtro & set(r.get("CATEGORIAS") or [])
-                    ]
+                # Um contato pode ter varias categorias ao mesmo tempo --
+                # aparece se tiver a categoria escolhida ENTRE as suas (nao
+                # precisa ser a unica). Pra filtrar por mais de uma categoria
+                # de uma vez, basta adicionar mais uma linha de filtro
+                # "Categoria" (as linhas se combinam com "E" entre si, como
+                # qualquer outro filtro desta tela).
+                categoria_filtro = linha.widget_valor.currentData()
+                if categoria_filtro is not None:
+                    filtrados = [r for r in filtrados if categoria_filtro in (r.get("CATEGORIAS") or [])]
             else:
                 texto = linha.widget_valor.text()
                 if texto:

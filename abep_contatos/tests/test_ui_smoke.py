@@ -15,7 +15,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QComboBox
 
-from db import auth, categorias, connection, importer, records
+from db import auth, connection, importer, records
 from db.schema import EMPRESAS, PESSOAS
 from ui.dashboard_view import DashboardView
 from ui.export_dialog import ExportDialog
@@ -149,15 +149,12 @@ def test_lista_registros_view_varios_filtros_combinam_com_e(banco_com_dados):
     so_empresa = {r["ID"] for r in view._registros_filtrados}
     assert primeira_pessoa["ID"] in so_empresa
 
-    # 2a linha: filtra tambem por Categoria (o combo de categoria agora deixa
-    # marcar mais de um valor ao mesmo tempo -- aqui marcamos so um) --
-    # resultado so pode ENCOLHER (ou ficar igual), nunca trazer gente de fora
-    # do filtro de empresa.
+    # 2a linha: filtra tambem por Categoria -- resultado so pode ENCOLHER (ou
+    # ficar igual), nunca trazer gente de fora do filtro de empresa.
     view._adicionar_linha_filtro()
     linha_categoria = view._linhas_filtro[1]
     linha_categoria.combo_campo.setCurrentIndex(linha_categoria.combo_campo.findText("Categoria"))
-    linha_categoria.widget_valor.definir_opcoes(categorias.listar_categorias(banco_com_dados), [categoria])
-    view._aplicar_filtro()
+    linha_categoria.widget_valor.setCurrentIndex(linha_categoria.widget_valor.findData(categoria))
 
     combinado = view._registros_filtrados
     ids_combinado = {r["ID"] for r in combinado}
@@ -212,8 +209,7 @@ def test_lista_registros_view_preferencias_nao_vazam_entre_usuarios(banco_com_da
     view_admin._adicionar_linha_filtro()
     linha = view_admin._linhas_filtro[0]
     linha.combo_campo.setCurrentIndex(linha.combo_campo.findText("Categoria"))
-    linha.widget_valor.definir_opcoes(categorias.listar_categorias(banco_com_dados), [categoria])
-    view_admin._salvar_preferencias()
+    linha.widget_valor.setCurrentIndex(linha.widget_valor.findData(categoria))
 
     view_outra_pessoa = ListaRegistrosView(banco_com_dados, PESSOAS, "outra_pessoa")
     assert view_outra_pessoa._linhas_filtro == []

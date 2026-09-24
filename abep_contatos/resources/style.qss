@@ -290,38 +290,6 @@ QComboBox QAbstractItemView {
     outline: none;
 }
 
-/* Botao de filtro por categoria (selecao multipla) -- ui/widgets.py::ComboMultiSelecao.
-   Nao e um QComboBox de verdade (um QMenu com uma lista dentro), entao
-   precisa do mesmo visual de campo de entrada aplicado manualmente. */
-QToolButton#comboMultiSelecao {
-    border: 1px solid {{borda}};
-    border-radius: 8px;
-    padding: 7px 10px;
-    background-color: {{bg_input}};
-    color: {{text}};
-    text-align: left;
-}
-
-QToolButton#comboMultiSelecao:hover {
-    background-color: {{bg_input}};
-}
-
-QToolButton#comboMultiSelecao::menu-indicator {
-    right: 8px;
-}
-
-QListWidget#comboMultiSelecaoLista {
-    background-color: {{bg_input}};
-    color: {{text}};
-    border: none;
-    outline: none;
-}
-
-QListWidget#comboMultiSelecaoLista::item:selected {
-    background-color: {{accent}};
-    color: {{accent_texto}};
-}
-
 QCheckBox {
     color: {{text}};
     spacing: 8px;
