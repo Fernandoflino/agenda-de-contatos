@@ -64,6 +64,8 @@ class CategoriasDialog(QDialog):
         for texto, funcao, variante in (
             ("Adicionar...", self._adicionar, None),
             ("Renomear...", self._renomear, "secundario"),
+            ("Mover para cima", lambda: self._mover(-1), "secundario"),
+            ("Mover para baixo", lambda: self._mover(1), "secundario"),
             ("Excluir", self._excluir, "perigo"),
         ):
             botao = QPushButton(texto)
@@ -111,6 +113,13 @@ class CategoriasDialog(QDialog):
             mostrar_erro(self, str(erro))
             return
         self._recarregar(selecionar=nome.strip())
+
+    def _mover(self, direcao: int) -> None:
+        atual = self._categoria_selecionada()
+        if not atual:
+            return
+        categorias.mover_categoria(self.conn, atual, direcao)
+        self._recarregar(selecionar=atual)
 
     def _renomear(self) -> None:
         atual = self._categoria_selecionada()

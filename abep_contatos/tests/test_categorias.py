@@ -15,6 +15,44 @@ def test_adicionar_categoria_nova(conn):
     assert categorias.listar_categorias(conn) == ["Presidentes", "Diretores Técnicos"]
 
 
+def test_mover_categoria_sobe_e_desce(conn):
+    categorias.adicionar_categoria(conn, "Presidentes")
+    categorias.adicionar_categoria(conn, "Diretores Técnicos")
+    categorias.adicionar_categoria(conn, "Diretores Adm. Financeiros")
+
+    categorias.mover_categoria(conn, "Diretores Adm. Financeiros", -1)
+    assert categorias.listar_categorias(conn) == [
+        "Presidentes", "Diretores Adm. Financeiros", "Diretores Técnicos",
+    ]
+
+    categorias.mover_categoria(conn, "Diretores Adm. Financeiros", -1)
+    assert categorias.listar_categorias(conn) == [
+        "Diretores Adm. Financeiros", "Presidentes", "Diretores Técnicos",
+    ]
+
+    categorias.mover_categoria(conn, "Diretores Adm. Financeiros", 1)
+    assert categorias.listar_categorias(conn) == [
+        "Presidentes", "Diretores Adm. Financeiros", "Diretores Técnicos",
+    ]
+
+
+def test_mover_categoria_na_ponta_nao_faz_nada(conn):
+    categorias.adicionar_categoria(conn, "Presidentes")
+    categorias.adicionar_categoria(conn, "Diretores Técnicos")
+
+    categorias.mover_categoria(conn, "Presidentes", -1)  # ja e a primeira
+    assert categorias.listar_categorias(conn) == ["Presidentes", "Diretores Técnicos"]
+
+    categorias.mover_categoria(conn, "Diretores Técnicos", 1)  # ja e a ultima
+    assert categorias.listar_categorias(conn) == ["Presidentes", "Diretores Técnicos"]
+
+
+def test_mover_categoria_inexistente_nao_faz_nada(conn):
+    categorias.adicionar_categoria(conn, "Presidentes")
+    categorias.mover_categoria(conn, "Não Existe", -1)
+    assert categorias.listar_categorias(conn) == ["Presidentes"]
+
+
 def test_adicionar_categoria_duplicada_da_erro(conn):
     categorias.adicionar_categoria(conn, "Presidentes")
     with pytest.raises(ValueError):

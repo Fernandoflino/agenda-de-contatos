@@ -23,6 +23,24 @@ def listar_categorias(conn: sqlite3.Connection) -> list[str]:
     return [r[0] for r in cur.fetchall()]
 
 
+def mover_categoria(conn: sqlite3.Connection, nome: str, direcao: int) -> None:
+    """Move uma categoria uma posicao na ordem de exibicao, trocando de
+    lugar com a vizinha -- direcao=-1 sobe, direcao=+1 desce. Nao faz nada
+    se a categoria ja estiver na ponta (primeira/ultima) nessa direcao."""
+    ordenadas = conn.execute(f'SELECT "ID", "NOME", "ORDEM" FROM {APP_CATEGORIAS} ORDER BY "ORDEM"').fetchall()
+    indice = next((i for i, linha in enumerate(ordenadas) if linha[1] == nome), None)
+    if indice is None:
+        return
+    indice_vizinho = indice + direcao
+    if indice_vizinho < 0 or indice_vizinho >= len(ordenadas):
+        return
+    id_atual, _, ordem_atual = ordenadas[indice]
+    id_vizinho, _, ordem_vizinho = ordenadas[indice_vizinho]
+    conn.execute(f'UPDATE {APP_CATEGORIAS} SET "ORDEM" = ? WHERE "ID" = ?', (ordem_vizinho, id_atual))
+    conn.execute(f'UPDATE {APP_CATEGORIAS} SET "ORDEM" = ? WHERE "ID" = ?', (ordem_atual, id_vizinho))
+    conn.commit()
+
+
 def contar_uso(conn: sqlite3.Connection, nome: str) -> int:
     """Quantos contatos usam essa categoria hoje -- usado pra avisar antes
     de renomear ou excluir."""

@@ -379,11 +379,17 @@ def migrar_schema_se_necessario(conn) -> None:
         if PESSOAS in tabelas_existentes:
             colunas_pessoas_atuais = {row[1] for row in conn.execute(f'PRAGMA table_info("{PESSOAS}")')}
             if "CATEGORIA" in colunas_pessoas_atuais:
+                # Ordem alfabetica nao tem nenhum significado real aqui --
+                # ordena pela PRIMEIRA vez que cada categoria apareceu (menor
+                # ID de pessoa), o que reproduz a ordem real de cadastro/
+                # importacao (ex.: todo mundo importado como "Presidentes"
+                # tinha ID menor que "Diretores Tecnicos" na planilha antiga).
                 cur = conn.execute(
-                    f'SELECT DISTINCT "CATEGORIA" FROM "{PESSOAS}" '
-                    f'WHERE "CATEGORIA" IS NOT NULL AND "CATEGORIA" != \'\' ORDER BY "CATEGORIA"'
+                    f'SELECT "CATEGORIA", MIN("ID") FROM "{PESSOAS}" '
+                    f'WHERE "CATEGORIA" IS NOT NULL AND "CATEGORIA" != \'\' '
+                    f'GROUP BY "CATEGORIA" ORDER BY MIN("ID")'
                 )
-                for (valor,) in cur.fetchall():
+                for valor, _primeiro_id in cur.fetchall():
                     nome = str(valor).strip()
                     if nome and nome.lower() not in vistos_lower:
                         nomes_categoria.append(nome)

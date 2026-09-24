@@ -176,3 +176,18 @@ class ComboMultiSelecao(QComboBox):
         if self._fechar_popup:
             super().hidePopup()
         self._fechar_popup = True
+
+    def mousePressEvent(self, event) -> None:
+        # Como esse combo e "editavel" so pelo truque de mostrar um texto
+        # resumido personalizado ("(todas)" / "2 categorias selecionadas"),
+        # nunca deveria de fato dar pra digitar aqui -- mas um QComboBox
+        # editavel so abre o popup com clique na setinha da direita; clicar
+        # no resto da caixa (a maior parte da largura, ja que o campo de
+        # valor do filtro e bem largo) so da foco de edicao e nao abre nada,
+        # dando a impressao de que o filtro "nao funciona". Interceptando
+        # aqui, qualquer clique do botao esquerdo -- em qualquer ponto do
+        # widget -- abre o popup, igual todo outro combo do app.
+        if event.button() == Qt.LeftButton:
+            self.showPopup()
+            return
+        super().mousePressEvent(event)
