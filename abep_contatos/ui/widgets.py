@@ -6,17 +6,19 @@ pelas categorias de contato, que agora podem ser mais de uma por pessoa.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QTimer, Qt, Signal
-from PySide6.QtGui import QStandardItem, QStandardItemModel
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
-    QComboBox,
     QHBoxLayout,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
+    QSizePolicy,
+    QToolButton,
     QWidget,
+    QWidgetAction,
 )
 
 
@@ -111,74 +113,65 @@ class SelecaoMultiplaLista(QListWidget):
         return resultado
 
 
-class ComboMultiSelecao(QComboBox):
-    """Um combo (dropdown) onde cada item da lista tem uma caixinha de
-    marcar, permitindo escolher VARIOS valores sem precisar de uma lista
-    grande sempre visivel -- usado no filtro por categoria da tela de
+class ComboMultiSelecao(QToolButton):
+    """Um botao que abre uma lista onde da pra marcar VARIOS itens ao mesmo
+    tempo (cada clique so destaca a linha, sem caixinha de checkbox --
+    igual a lista de Empresa) -- usado no filtro por categoria da tela de
     contatos, que agora pode ter mais de um valor marcado ao mesmo tempo.
 
-    O texto mostrado no combo (quando fechado) resume a selecao: "(todas)"
-    quando nada esta marcado, o nome sozinho quando so um item esta
-    marcado, ou "N categorias selecionadas" caso contrario.
+    Implementado com QMenu + QWidgetAction em vez de um QComboBox
+    "customizado" pra aceitar varias marcacoes: um popup de combobox tem
+    uma porcao de comportamento interno de clique/arrastar/soltar dificil
+    de replicar sem bugs (varias tentativas anteriores esbarraram nisso --
+    ou o popup nao abria com um clique normal, ou so ficava aberto
+    segurando o botao do mouse). Um QMenu com um widget dentro (via
+    QWidgetAction) e o jeito padrao do Qt de fazer um "dropdown" que so
+    fecha ao clicar fora dele ou apertar Esc -- igual qualquer outro menu
+    do programa, sem hack nenhum.
+
+    O texto mostrado no botao (fechado) resume a selecao: "(todas)" quando
+    nada esta marcado, o nome sozinho quando so um item esta marcado, ou
+    "N categorias selecionadas" caso contrario.
     """
 
     selecaoMudou = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setModel(QStandardItemModel(self))
-        self.setEditable(True)
-        self.lineEdit().setReadOnly(True)
-        # O campo de texto interno (criado por setEditable) cobre quase toda
-        # a largura da caixa e "engole" o clique do mouse antes dele chegar
-        # no combo -- sem isso, so a setinha da direita abriria o popup (o
-        # bug relatado: clicar no meio da caixa larga nao fazia nada).
-        self.lineEdit().installEventFilter(self)
-        self.view().pressed.connect(self._alternar_item)
-        self._fechar_popup = True
-        self._atualizar_texto()
+        self.setObjectName("comboMultiSelecao")
+        self.setPopupMode(QToolButton.InstantPopup)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-    def eventFilter(self, watched, event) -> bool:
-        if watched is self.lineEdit() and event.type() == QEvent.MouseButtonPress:
-            # Chamar showPopup() direto aqui abriria o popup ainda com o
-            # botao do mouse fisicamente pressionado (estamos dentro do
-            # proprio evento de clique) -- o popup "herda" esse pressionar
-            # em andamento como se fosse um menu do tipo "segura, arrasta,
-            # solta pra escolher": soltar o botao localizado sobre um item
-            # (o que acontece na maioria dos cliques normais, ja que o
-            # popup abre bem embaixo do cursor) fecha tudo na hora,
-            # dando a impressao de que so funciona "segurando". Adiar a
-            # chamada pro proximo laco de eventos garante que o clique
-            # original ja tenha terminado (botao solto) antes do popup
-            # abrir, evitando essa confusao.
-            QTimer.singleShot(0, self.showPopup)
-            return True
-        return super().eventFilter(watched, event)
+        self._lista = QListWidget()
+        self._lista.setObjectName("comboMultiSelecaoLista")
+        self._lista.setSelectionMode(QAbstractItemView.MultiSelection)
+        self._lista.setMinimumWidth(260)
+        self._lista.itemSelectionChanged.connect(self._ao_mudar_selecao)
+
+        menu = QMenu(self)
+        acao = QWidgetAction(menu)
+        acao.setDefaultWidget(self._lista)
+        menu.addAction(acao)
+        self.setMenu(menu)
+
+        self._atualizar_texto()
 
     def definir_opcoes(self, opcoes: list[str], marcados: list[str] | None = None) -> None:
         marcados_set = set(marcados if marcados is not None else self.selecionados())
-        modelo = self.model()
-        modelo.clear()
+        self._lista.blockSignals(True)
+        self._lista.clear()
         for nome in opcoes:
-            item = QStandardItem(nome)
-            item.setCheckable(True)
-            item.setCheckState(Qt.Checked if nome in marcados_set else Qt.Unchecked)
-            modelo.appendRow(item)
+            item = QListWidgetItem(nome)
+            self._lista.addItem(item)
+            item.setSelected(nome in marcados_set)
+        self._lista.blockSignals(False)
         self._atualizar_texto()
 
     def selecionados(self) -> list[str]:
-        modelo = self.model()
-        return [
-            modelo.item(i).text()
-            for i in range(modelo.rowCount())
-            if modelo.item(i).checkState() == Qt.Checked
-        ]
+        return [item.text() for item in self._lista.selectedItems()]
 
-    def _alternar_item(self, index) -> None:
-        item = self.model().itemFromIndex(index)
-        item.setCheckState(Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked)
+    def _ao_mudar_selecao(self) -> None:
         self._atualizar_texto()
-        self._fechar_popup = False
         self.selecaoMudou.emit()
 
     def _atualizar_texto(self) -> None:
@@ -189,12 +182,4 @@ class ComboMultiSelecao(QComboBox):
             texto = marcados[0]
         else:
             texto = f"{len(marcados)} categorias selecionadas"
-        self.lineEdit().setText(texto)
-
-    def hidePopup(self) -> None:
-        # Sem isso, o Qt fecharia o dropdown a cada clique num item -- essa
-        # flag deixa o popup aberto exatamente quando o motivo de chamar
-        # hidePopup() foi o clique que acabou de marcar/desmarcar um item.
-        if self._fechar_popup:
-            super().hidePopup()
-        self._fechar_popup = True
+        self.setText(texto)

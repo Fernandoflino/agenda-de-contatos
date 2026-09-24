@@ -330,7 +330,7 @@ class ListaRegistrosView(QWidget):
         campo = linha.combo_campo.currentData()
         if campo == "_EMPRESA_BUSCA" and isinstance(linha.widget_valor, QComboBox):
             self._popular_valor_combo_empresa(linha.widget_valor)
-        elif campo == "CATEGORIA" and self.tabela == PESSOAS and isinstance(linha.widget_valor, QComboBox):
+        elif campo == "CATEGORIA" and self.tabela == PESSOAS and isinstance(linha.widget_valor, ComboMultiSelecao):
             self._popular_valor_combo_categoria(linha.widget_valor)
 
     # -- preferencias do usuario (filtros salvos, largura do painel) --------

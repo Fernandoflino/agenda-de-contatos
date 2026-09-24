@@ -27,66 +27,69 @@ def _combo_numa_janela_larga(qapp, opcoes=("A", "B", "C")):
     return janela, combo
 
 
-def test_combo_multi_selecao_abre_popup_com_clique_no_meio_da_caixa(qapp):
-    """Regressao: o combo e "editavel" (pra mostrar texto resumido tipo
-    "(todas)"), e o campo de texto interno criado por setEditable() cobre
-    quase toda a largura da caixa -- um clique real do usuario cai NESSE
-    campo de texto, nao no QComboBox em si, entao o clique precisa ser
-    simulado no lineEdit() (o widget que realmente fica embaixo do cursor
-    na tela), nao no combo diretamente -- senao o teste passaria mesmo com
-    o bug presente (o bug so aparece com um clique de verdade)."""
+def _abrir_menu(combo: ComboMultiSelecao) -> None:
+    """Abre o menu do combo sem passar pelo clique nativo do botao -- no Qt
+    offscreen, o clique nativo entra num loop bloqueante esperando o menu
+    fechar de verdade, travando o teste. `popup()` e o mesmo caminho
+    nao-bloqueante que o QToolButton usa por baixo dos panos."""
+    combo.menu().popup(combo.mapToGlobal(QPoint(0, combo.height())))
+
+
+def test_combo_multi_selecao_menu_continua_aberto_ao_marcar_varios_itens(qapp):
+    """O ponto central do redesenho: ao contrario do QComboBox "hackeado"
+    de antes (que em rodadas anteriores ora nao abria com um clique normal,
+    ora fechava sozinho), um QMenu com a lista dentro via QWidgetAction so
+    fecha ao clicar fora dele -- clicar nos itens (marcando varios, um atras
+    do outro) nao deve fechar nada."""
     janela, combo = _combo_numa_janela_larga(qapp)
     try:
-        assert not combo.view().isVisible()
-        le = combo.lineEdit()
-        QTest.mouseClick(le, Qt.LeftButton, pos=QPoint(min(150, le.width() - 5), le.height() // 2))
-        qapp.processEvents()  # o popup abre num QTimer.singleShot(0, ...), nao na hora do clique
-        assert combo.view().isVisible()
+        _abrir_menu(combo)
+        menu = combo.menu()
+        assert menu.isVisible()
+
+        lista = combo._lista
+        for indice in (0, 1):
+            retangulo = lista.visualItemRect(lista.item(indice))
+            QTest.mouseClick(lista.viewport(), Qt.LeftButton, pos=retangulo.center())
+            assert menu.isVisible()  # continua aberto apos CADA clique
+
+        assert set(combo.selecionados()) == {"A", "B"}
+        assert combo.text() == "2 categorias selecionadas"
+
+        menu.close()
+        assert not menu.isVisible()
     finally:
         janela.close()
 
 
-def test_combo_multi_selecao_popup_continua_aberto_apos_soltar_o_clique(qapp):
-    """Regressao: abrir o popup DENTRO do proprio evento de clique (com o
-    botao do mouse ainda fisicamente pressionado) faz o popup "herdar" esse
-    pressionar como se fosse um menu do tipo segura-arrasta-solta -- soltar
-    o botao localizado sobre um item (o caso comum, ja que o popup abre bem
-    embaixo do cursor) fechava tudo na hora, dando a impressao de que so
-    funcionava segurando o clique. O popup precisa continuar aberto depois
-    de um clique normal (pressionar e soltar rapido, sem segurar)."""
+def test_combo_multi_selecao_clicar_de_novo_no_item_desmarca(qapp):
     janela, combo = _combo_numa_janela_larga(qapp)
     try:
-        le = combo.lineEdit()
-        ponto = QPoint(min(150, le.width() - 5), le.height() // 2)
-        QTest.mousePress(le, Qt.LeftButton, pos=ponto)
-        QTest.mouseRelease(le, Qt.LeftButton, pos=ponto)  # solta logo em seguida, sem segurar
-        qapp.processEvents()
-        assert combo.view().isVisible()
-    finally:
-        janela.close()
-
-
-def test_combo_multi_selecao_abre_popup_com_clique_na_seta(qapp):
-    janela, combo = _combo_numa_janela_larga(qapp)
-    try:
-        QTest.mouseClick(combo, Qt.LeftButton, pos=QPoint(combo.width() - 5, combo.height() // 2))
-        assert combo.view().isVisible()
-    finally:
-        janela.close()
-
-
-def test_combo_multi_selecao_clicar_em_item_do_popup_marca_e_atualiza_texto(qapp):
-    janela, combo = _combo_numa_janela_larga(qapp)
-    try:
-        combo.showPopup()
-        indice = combo.model().index(0, 0)
-        retangulo = combo.view().visualRect(indice)
-        QTest.mouseClick(combo.view().viewport(), Qt.LeftButton, pos=retangulo.center())
-
+        _abrir_menu(combo)
+        lista = combo._lista
+        retangulo = lista.visualItemRect(lista.item(0))
+        QTest.mouseClick(lista.viewport(), Qt.LeftButton, pos=retangulo.center())
         assert combo.selecionados() == ["A"]
-        assert combo.lineEdit().text() == "A"
+
+        QTest.mouseClick(lista.viewport(), Qt.LeftButton, pos=retangulo.center())
+        assert combo.selecionados() == []
+        assert combo.text() == "(todas)"
     finally:
         janela.close()
+
+
+def test_combo_multi_selecao_itens_nao_tem_checkbox(qapp):
+    """Pedido explicito: a lista precisa aparecer como uma lista simples
+    (igual o filtro de Empresa), sem icone de caixinha de marcar -- a
+    selecao e so o destaque/realce da linha (QAbstractItemView.MultiSelection).
+    QListWidgetItem e "checkable" por padrao (flag do Qt), mas o delegate so
+    desenha a caixinha quando um CheckStateRole de verdade foi atribuido ao
+    item -- nunca chamamos setCheckState(), entao nada e desenhado."""
+    combo = ComboMultiSelecao()
+    combo.definir_opcoes(["A", "B"])
+    item = combo._lista.item(0)
+    assert item.data(Qt.CheckStateRole) is None
+    assert combo._lista.selectionMode() == combo._lista.SelectionMode.MultiSelection
 
 
 def test_combo_multi_selecao_definir_opcoes_preserva_selecao_atual():
@@ -100,13 +103,13 @@ def test_combo_multi_selecao_definir_opcoes_preserva_selecao_atual():
 
 def test_combo_multi_selecao_texto_resumo_varia_com_quantidade_marcada():
     combo = ComboMultiSelecao()
-    assert combo.lineEdit().text() == "(todas)"
+    assert combo.text() == "(todas)"
 
     combo.definir_opcoes(["A", "B", "C"], marcados=["A"])
-    assert combo.lineEdit().text() == "A"
+    assert combo.text() == "A"
 
     combo.definir_opcoes(["A", "B", "C"], marcados=["A", "B"])
-    assert combo.lineEdit().text() == "2 categorias selecionadas"
+    assert combo.text() == "2 categorias selecionadas"
 
 
 def test_selecao_multipla_lista_inicia_com_marcados_e_preserva_orfaos():
