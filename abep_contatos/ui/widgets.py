@@ -6,7 +6,7 @@ pelas categorias de contato, que agora podem ser mais de uma por pessoa.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -129,9 +129,20 @@ class ComboMultiSelecao(QComboBox):
         self.setModel(QStandardItemModel(self))
         self.setEditable(True)
         self.lineEdit().setReadOnly(True)
+        # O campo de texto interno (criado por setEditable) cobre quase toda
+        # a largura da caixa e "engole" o clique do mouse antes dele chegar
+        # no combo -- sem isso, so a setinha da direita abriria o popup (o
+        # bug relatado: clicar no meio da caixa larga nao fazia nada).
+        self.lineEdit().installEventFilter(self)
         self.view().pressed.connect(self._alternar_item)
         self._fechar_popup = True
         self._atualizar_texto()
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self.lineEdit() and event.type() == QEvent.MouseButtonPress:
+            self.showPopup()
+            return True
+        return super().eventFilter(watched, event)
 
     def definir_opcoes(self, opcoes: list[str], marcados: list[str] | None = None) -> None:
         marcados_set = set(marcados if marcados is not None else self.selecionados())

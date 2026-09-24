@@ -29,13 +29,17 @@ def _combo_numa_janela_larga(qapp, opcoes=("A", "B", "C")):
 
 def test_combo_multi_selecao_abre_popup_com_clique_no_meio_da_caixa(qapp):
     """Regressao: o combo e "editavel" (pra mostrar texto resumido tipo
-    "(todas)"), e um QComboBox editavel por padrao SO abre o popup com
-    clique na setinha -- clicar no resto da caixa (a maior parte da largura)
-    nao abria nada, dando a impressao de que o filtro nao tinha opcoes."""
+    "(todas)"), e o campo de texto interno criado por setEditable() cobre
+    quase toda a largura da caixa -- um clique real do usuario cai NESSE
+    campo de texto, nao no QComboBox em si, entao o clique precisa ser
+    simulado no lineEdit() (o widget que realmente fica embaixo do cursor
+    na tela), nao no combo diretamente -- senao o teste passaria mesmo com
+    o bug presente (o bug so aparece com um clique de verdade)."""
     janela, combo = _combo_numa_janela_larga(qapp)
     try:
         assert not combo.view().isVisible()
-        QTest.mouseClick(combo, Qt.LeftButton, pos=QPoint(200, combo.height() // 2))
+        le = combo.lineEdit()
+        QTest.mouseClick(le, Qt.LeftButton, pos=QPoint(min(150, le.width() - 5), le.height() // 2))
         assert combo.view().isVisible()
     finally:
         janela.close()
