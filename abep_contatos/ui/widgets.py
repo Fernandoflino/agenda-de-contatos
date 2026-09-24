@@ -6,7 +6,7 @@ pelas categorias de contato, que agora podem ser mais de uma por pessoa.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtCore import QEvent, QTimer, Qt, Signal
 from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -140,7 +140,18 @@ class ComboMultiSelecao(QComboBox):
 
     def eventFilter(self, watched, event) -> bool:
         if watched is self.lineEdit() and event.type() == QEvent.MouseButtonPress:
-            self.showPopup()
+            # Chamar showPopup() direto aqui abriria o popup ainda com o
+            # botao do mouse fisicamente pressionado (estamos dentro do
+            # proprio evento de clique) -- o popup "herda" esse pressionar
+            # em andamento como se fosse um menu do tipo "segura, arrasta,
+            # solta pra escolher": soltar o botao localizado sobre um item
+            # (o que acontece na maioria dos cliques normais, ja que o
+            # popup abre bem embaixo do cursor) fecha tudo na hora,
+            # dando a impressao de que so funciona "segurando". Adiar a
+            # chamada pro proximo laco de eventos garante que o clique
+            # original ja tenha terminado (botao solto) antes do popup
+            # abrir, evitando essa confusao.
+            QTimer.singleShot(0, self.showPopup)
             return True
         return super().eventFilter(watched, event)
 
@@ -187,18 +198,3 @@ class ComboMultiSelecao(QComboBox):
         if self._fechar_popup:
             super().hidePopup()
         self._fechar_popup = True
-
-    def mousePressEvent(self, event) -> None:
-        # Como esse combo e "editavel" so pelo truque de mostrar um texto
-        # resumido personalizado ("(todas)" / "2 categorias selecionadas"),
-        # nunca deveria de fato dar pra digitar aqui -- mas um QComboBox
-        # editavel so abre o popup com clique na setinha da direita; clicar
-        # no resto da caixa (a maior parte da largura, ja que o campo de
-        # valor do filtro e bem largo) so da foco de edicao e nao abre nada,
-        # dando a impressao de que o filtro "nao funciona". Interceptando
-        # aqui, qualquer clique do botao esquerdo -- em qualquer ponto do
-        # widget -- abre o popup, igual todo outro combo do app.
-        if event.button() == Qt.LeftButton:
-            self.showPopup()
-            return
-        super().mousePressEvent(event)

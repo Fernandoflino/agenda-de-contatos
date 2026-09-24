@@ -85,12 +85,6 @@ class RecordFormDialog(QDialog):
         # ela e tratada como um campo especial "SENHA" mais abaixo.
         if self.tabela == USUARIOS:
             colunas = [c for c in colunas if c != "SENHA_HASH"]
-        # CATEGORIA de PESSOAS nao e mais um campo de coluna comum -- agora e
-        # uma relacao N:N (uma pessoa pode ter varias categorias), tratada
-        # numa linha propria de selecao multipla logo abaixo do loop.
-        if self.tabela == PESSOAS:
-            colunas = [c for c in colunas if c != "CATEGORIA"]
-
         # Uma lista de campos pode ser mais alta do que a tela -- por isso o
         # formulario fica dentro de uma area com barra de rolagem.
         area_rolavel = QScrollArea(self)
@@ -101,6 +95,20 @@ class RecordFormDialog(QDialog):
         form.setSpacing(10)
 
         for coluna in colunas:
+            # CATEGORIA de PESSOAS nao e mais um campo de coluna comum -- e
+            # uma relacao N:N (uma pessoa pode ter varias categorias), mas
+            # continua ocupando o LUGAR que o usuario configurou pra ela em
+            # "Tabelas e campos" (get_column_order), em vez de sempre cair
+            # no fim do formulario.
+            if coluna == "CATEGORIA" and self.tabela == PESSOAS:
+                opcoes_categoria = categorias.listar_categorias(self.conn)
+                marcadas = self.registro.get("CATEGORIAS") or []
+                self._widget_categorias = SelecaoMultiplaLista(opcoes_categoria, marcadas)
+                rotulo_categorias = QLabel("Categorias")
+                rotulo_categorias.setBuddy(self._widget_categorias)
+                form.addRow(rotulo_categorias, self._widget_categorias)
+                continue
+
             valor_atual = self.registro.get(coluna)
             widget = self._criar_widget_campo(coluna, valor_atual)
             rotulo = QLabel(field_types.rotulo_amigavel(coluna))
@@ -108,7 +116,12 @@ class RecordFormDialog(QDialog):
             form.addRow(rotulo, widget)
             self._widgets[coluna] = widget
 
-        if self.tabela == PESSOAS:
+        # Rede de seguranca: se por algum motivo a coluna vestigial CATEGORIA
+        # nao apareceu em `colunas` (ex.: alguem removeu esse campo pela tela
+        # "Tabelas e campos", sem saber que ele sustenta a lista de
+        # categorias), garante que a selecao multipla ainda apareca, mesmo
+        # que va parar no fim do formulario em vez do lugar configurado.
+        if self.tabela == PESSOAS and self._widget_categorias is None:
             opcoes_categoria = categorias.listar_categorias(self.conn)
             marcadas = self.registro.get("CATEGORIAS") or []
             self._widget_categorias = SelecaoMultiplaLista(opcoes_categoria, marcadas)

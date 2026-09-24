@@ -361,6 +361,43 @@ def test_record_form_dialog_criar_e_editar(banco_com_dados):
     assert dialogo_editar._widgets["SIGLA"].text() == (empresa.get("SIGLA") or "")
 
 
+def test_record_form_dialog_categorias_respeita_ordem_configurada_das_colunas(qapp, conn):
+    """Regressao: a linha "Categorias" (selecao multipla) sempre ia parar no
+    FIM do formulario, ignorando a posicao que o usuario configurou pra
+    coluna CATEGORIA (vestigial, mas ainda usada como "marcador de posicao")
+    na tela "Tabelas e campos". Precisa aparecer onde CATEGORIA foi
+    configurada -- aqui, logo apos "ID_EMPRESA"."""
+    from db import tables
+
+    ordem = tables.get_column_order(conn, PESSOAS)
+    nova_ordem = ["ID_EMPRESA", "CATEGORIA"] + [c for c in ordem if c not in ("ID_EMPRESA", "CATEGORIA", "ID")]
+    tables.set_column_order(conn, PESSOAS, nova_ordem)
+
+    dialogo = RecordFormDialog(conn, PESSOAS, registro=None)
+    assert dialogo._widget_categorias is not None
+    # A linha de Categorias deve vir logo depois de ID_EMPRESA no QFormLayout
+    # -- percorre as linhas do form contando rotulos ate achar "Categorias".
+    from PySide6.QtWidgets import QFormLayout, QScrollArea
+
+    area = dialogo.findChild(QScrollArea)
+    form = area.widget().layout()
+    assert isinstance(form, QFormLayout)
+    rotulos = [form.itemAt(i, QFormLayout.LabelRole).widget().text() for i in range(form.rowCount())]
+    assert rotulos.index("Categorias") == 1  # posicao 0 = Empresa, posicao 1 = Categorias
+
+
+def test_record_form_dialog_categorias_aparece_mesmo_se_coluna_foi_removida(qapp, conn):
+    """Rede de seguranca: se a coluna vestigial CATEGORIA for removida da
+    tabela (ex.: usuario usou "Remover campo" sem saber que ela sustenta a
+    lista de categorias), a selecao multipla ainda precisa aparecer no
+    formulario -- so nao respeita mais a posicao configurada."""
+    from db import tables
+
+    tables.drop_column(conn, PESSOAS, "CATEGORIA")
+    dialogo = RecordFormDialog(conn, PESSOAS, registro=None)
+    assert dialogo._widget_categorias is not None
+
+
 def test_record_form_dialog_preserva_data_invalida_de_dado_antigo(banco_com_dados):
     """Um campo do tipo 'data' cujo valor JA GRAVADO nao e uma data valida
     (dado antigo digitado errado, ex.: um nome de pessoa por engano) nao

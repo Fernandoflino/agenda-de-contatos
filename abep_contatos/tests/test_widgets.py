@@ -40,6 +40,27 @@ def test_combo_multi_selecao_abre_popup_com_clique_no_meio_da_caixa(qapp):
         assert not combo.view().isVisible()
         le = combo.lineEdit()
         QTest.mouseClick(le, Qt.LeftButton, pos=QPoint(min(150, le.width() - 5), le.height() // 2))
+        qapp.processEvents()  # o popup abre num QTimer.singleShot(0, ...), nao na hora do clique
+        assert combo.view().isVisible()
+    finally:
+        janela.close()
+
+
+def test_combo_multi_selecao_popup_continua_aberto_apos_soltar_o_clique(qapp):
+    """Regressao: abrir o popup DENTRO do proprio evento de clique (com o
+    botao do mouse ainda fisicamente pressionado) faz o popup "herdar" esse
+    pressionar como se fosse um menu do tipo segura-arrasta-solta -- soltar
+    o botao localizado sobre um item (o caso comum, ja que o popup abre bem
+    embaixo do cursor) fechava tudo na hora, dando a impressao de que so
+    funcionava segurando o clique. O popup precisa continuar aberto depois
+    de um clique normal (pressionar e soltar rapido, sem segurar)."""
+    janela, combo = _combo_numa_janela_larga(qapp)
+    try:
+        le = combo.lineEdit()
+        ponto = QPoint(min(150, le.width() - 5), le.height() // 2)
+        QTest.mousePress(le, Qt.LeftButton, pos=ponto)
+        QTest.mouseRelease(le, Qt.LeftButton, pos=ponto)  # solta logo em seguida, sem segurar
+        qapp.processEvents()
         assert combo.view().isVisible()
     finally:
         janela.close()
