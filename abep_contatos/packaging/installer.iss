@@ -51,6 +51,8 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
+; Icone do proprio Setup.exe (o instalador) -- o mesmo usado no programa.
+SetupIconFile=..\resources\icone.ico
 ; A pasta onde o instalador final (o Setup.exe) e salvo depois de compilado.
 OutputDir=saida
 OutputBaseFilename=PainelDeContatosSetup

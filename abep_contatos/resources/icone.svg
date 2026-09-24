@@ -1,0 +1,11 @@
+<!--
+Icone do programa (fonte vetorial). Usado para gerar resources/icone.ico
+(o formato que o Windows exige para o .exe e os atalhos) -- um silhueta de
+pessoa branca sobre um quadrado azul arredondado, na cor de destaque padrao
+do programa (ver COR_PADRAO em db/settings.py).
+-->
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="256" height="256" rx="56" ry="56" fill="#2563eb"/>
+  <circle cx="128" cy="100" r="36" fill="#ffffff"/>
+  <path d="M60 210 C60 160 90 138 128 138 C166 138 196 160 196 210 Z" fill="#ffffff"/>
+</svg>

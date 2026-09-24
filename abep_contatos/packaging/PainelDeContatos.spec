@@ -58,9 +58,9 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # Descomente a linha abaixo (e coloque um arquivo .ico em resources/)
-    # se quiser um icone proprio no .exe e nos atalhos criados pelo instalador:
-    # icon=os.path.join(RAIZ_DO_PROJETO, "resources", "icone.ico"),
+    # Icone proprio do .exe e dos atalhos criados pelo instalador (fonte
+    # vetorial em resources/icone.svg -- ver comentario la).
+    icon=os.path.join(RAIZ_DO_PROJETO, "resources", "icone.ico"),
 )
 
 # COLLECT junta o .exe com TODAS as bibliotecas que ele precisa (Python em
