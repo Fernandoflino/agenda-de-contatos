@@ -85,7 +85,7 @@ class LauncherDialog(QDialog):
 
         self.lista_recentes = QListWidget()
         for caminho in app_config.bancos_recentes():
-            item = QListWidgetItem(os.path.basename(caminho))
+            item = QListWidgetItem(f"{os.path.basename(caminho)}\n{caminho}")
             item.setToolTip(caminho)
             item.setData(Qt.UserRole, caminho)
             self.lista_recentes.addItem(item)
