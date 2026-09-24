@@ -214,11 +214,14 @@ class MainWindow(QMainWindow):
         # A ordem no menu segue a ordem manual configurada na tela de
         # "Gerenciar tabelas" (botoes "Mover para cima"/"Mover para baixo") --
         # tabelas que ninguem reordenou ainda aparecem no final, em ordem
-        # alfabetica do NOME real (ver db.tables.get_table_order). O TEXTO
-        # exibido continua sendo o ROTULO de cada tabela; PESSOAS mostra
-        # "Contatos" por padrao ate alguem configurar outro rotulo (ver
-        # db/settings.py -> obter_rotulo_tabela).
-        tabelas = get_table_order(self.conn)
+        # alfabetica do ROTULO exibido (nao do nome real da tabela -- PESSOAS
+        # mostra "Contatos" por padrao ate alguem configurar outro rotulo, ver
+        # db/settings.py -> obter_rotulo_tabela, e e por ESSE texto que a
+        # ordem alfabetica deve seguir, senao a posicao na sidebar nao bate
+        # com o texto que a pessoa esta vendo).
+        tabelas = get_table_order(
+            self.conn, chave_ordenacao=lambda t: settings.obter_rotulo_tabela(self.conn, t).lower()
+        )
         for tabela in tabelas:
             item = QListWidgetItem(settings.obter_rotulo_tabela(self.conn, tabela))
             item.setData(Qt.UserRole, tabela)
@@ -237,7 +240,7 @@ class MainWindow(QMainWindow):
         if nome_atual == _ITEM_PAINEL:
             indice_restaurar = 0
         elif nome_atual and nome_atual in tabelas:
-            indice_restaurar = 1 + ordenadas.index(nome_atual)
+            indice_restaurar = 1 + tabelas.index(nome_atual)
         if self.lista_navegacao.count():
             self.lista_navegacao.setCurrentRow(indice_restaurar)
 

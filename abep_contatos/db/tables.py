@@ -12,6 +12,7 @@ exportar etc.) do mesmo jeito que lida com EMPRESAS e PESSOAS.
 from __future__ import annotations
 
 import sqlite3
+from typing import Callable
 
 from . import log
 from .identifiers import quote_ident, validar_identificador
@@ -227,14 +228,19 @@ def set_column_order(conn: sqlite3.Connection, tabela: str, colunas_em_ordem: li
     conn.commit()
 
 
-def get_table_order(conn: sqlite3.Connection) -> list[str]:
+def get_table_order(conn: sqlite3.Connection, chave_ordenacao: Callable[[str], str] | None = None) -> list[str]:
     """Em que ordem as tabelas de dados devem aparecer (sidebar e a tela de
     "Gerenciar tabelas e campos"). Mesma logica de get_column_order(): tabelas
-    que o usuario ainda nao reordenou aparecem no final, em ordem alfabetica."""
+    que o usuario ainda nao reordenou aparecem no final, em ordem alfabetica
+    do proprio NOME da tabela por padrao -- passe `chave_ordenacao` pra
+    alfabetizar por outro criterio (ex.: main_window.py usa isso pra ordenar
+    a sidebar pelo ROTULO exibido, nao pelo nome interno da tabela)."""
     tabelas_existentes = list_data_sheets(conn)
     cur = conn.execute(f"SELECT tabela FROM {APP_TABLE_ORDER} ORDER BY posicao")
     configuradas = [r[0] for r in cur.fetchall() if r[0] in tabelas_existentes]
     resto = [t for t in tabelas_existentes if t not in configuradas]
+    if chave_ordenacao is not None:
+        resto = sorted(resto, key=chave_ordenacao)
     return configuradas + resto
 
 

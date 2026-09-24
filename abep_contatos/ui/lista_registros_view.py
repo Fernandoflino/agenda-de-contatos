@@ -77,6 +77,11 @@ class ListaRegistrosView(QWidget):
         self._linhas_filtro: list[QWidget] = []
         self._pagina_atual = 0
         self._itens_por_pagina = _ITENS_POR_PAGINA_PADRAO
+        # Coluna em que a pessoa clicou pra ordenar a tabela (None = ordem
+        # padrao, pelo campo-titulo) -- ver _ao_clicar_cabecalho_coluna().
+        self._campo_ordenacao: str | None = None
+        self._ordenacao_reversa = False
+        self._mapa_colunas_ordenaveis: dict[int, str] = {}
         self._ids_selecionados: set[int] = set()
         self._registro_detalhe: dict | None = None
         self._email_atual: str | None = None
@@ -431,6 +436,12 @@ class ListaRegistrosView(QWidget):
         self.tabela_widget.setWordWrap(False)
         self.tabela_widget.verticalHeader().hide()
         self.tabela_widget.cellClicked.connect(self._ao_clicar_celula)
+        # Clicar num cabecalho de coluna ordena a tabela por ela (de novo no
+        # mesmo cabecalho inverte a direcao) -- ver _ao_clicar_cabecalho_coluna().
+        cabecalho_tabela = self.tabela_widget.horizontalHeader()
+        cabecalho_tabela.setSectionsClickable(True)
+        cabecalho_tabela.setSortIndicatorShown(True)
+        cabecalho_tabela.sectionClicked.connect(self._ao_clicar_cabecalho_coluna)
         layout.addWidget(self.tabela_widget, stretch=1)
 
         layout.addLayout(self._montar_barra_paginacao())
@@ -729,7 +740,17 @@ class ListaRegistrosView(QWidget):
         self._layout_resumo = settings.obter_campos_resumo(self.conn, self.tabela, padrao)
         self._campo_titulo = self._determinar_campo_titulo(colunas)
 
-        self._registros_filtrados = sorted(filtrados, key=lambda r: self._titulo_do_registro(r).lower())
+        # Sem coluna escolhida pela pessoa (estado inicial): ordem padrao,
+        # pelo campo-titulo. Depois que ela clica num cabecalho, essa
+        # escolha manda ate a pessoa clicar em outro cabecalho.
+        if self._campo_ordenacao is None:
+            self._registros_filtrados = sorted(filtrados, key=lambda r: self._titulo_do_registro(r).lower())
+        else:
+            self._registros_filtrados = sorted(
+                filtrados,
+                key=lambda r: self._valor_ordenacao(r, self._campo_ordenacao),
+                reverse=self._ordenacao_reversa,
+            )
 
         total_paginas = max(1, -(-len(self._registros_filtrados) // self._itens_por_pagina))
         self._pagina_atual = min(self._pagina_atual, total_paginas - 1)
@@ -787,6 +808,17 @@ class ListaRegistrosView(QWidget):
             return "—"
         return field_types.formatar_data_exibicao(valor) if self._eh_campo_data(campo) else str(valor)
 
+    def _valor_ordenacao(self, registro: dict, campo: str) -> str:
+        """Chave de ordenacao pra um campo de coluna -- sempre o valor CRU
+        do registro (nunca o texto formatado de _valor_exibicao), pra datas
+        (guardadas em ISO aaaa-mm-dd) ordenarem cronologicamente em vez de
+        alfabeticamente pelo texto exibido (dd/mm/aaaa)."""
+        if campo == "_EMPRESA_RESUMO":
+            valor = " - ".join(p for p in (registro.get("_EMPRESA_SIGLA"), registro.get("_EMPRESA_NOME")) if p)
+        else:
+            valor = registro.get(campo)
+        return str(valor).lower() if valor else ""
+
     def _pagina_atual_de_registros(self) -> list[dict]:
         inicio = self._pagina_atual * self._itens_por_pagina
         return self._registros_filtrados[inicio:inicio + self._itens_por_pagina]
@@ -795,7 +827,22 @@ class ListaRegistrosView(QWidget):
         extras = self._colunas_extra_tabela()
         cabecalhos = ["", field_types.rotulo_amigavel(self._campo_titulo)]
         cabecalhos += [self._rotulo_coluna_tabela(c) for c in extras]
+        # Coluna INVISIVEL (sem cabecalho, sem conteudo) entre os dados e
+        # "Acoes" -- e ela, sozinha, que fica "Stretch" (ver mais abaixo),
+        # absorvendo o espaco sobrando pra "Acoes" continuar sempre grudada
+        # na borda direita da tabela, mesmo com as colunas de dados no
+        # tamanho justo do proprio conteudo (bug ja visto: sem essa coluna,
+        # "Acoes" ficava largada logo apos a ultima coluna de dados, com um
+        # vao cinza vazio ate a borda de verdade da janela).
+        indice_espacador = len(cabecalhos)
+        cabecalhos.append("")
         cabecalhos.append("Ações")
+
+        # Quais colunas podem ser ordenadas ao clicar no cabecalho, e qual
+        # CAMPO cada uma representa -- o checkbox, a espacadora e "Acoes"
+        # ficam de fora (ver _ao_clicar_cabecalho_coluna()).
+        self._mapa_colunas_ordenaveis = {1: self._campo_titulo}
+        self._mapa_colunas_ordenaveis.update({2 + i: campo for i, campo in enumerate(extras)})
 
         self.tabela_widget.setRowCount(0)
         self.tabela_widget.setColumnCount(len(cabecalhos))
@@ -872,7 +919,7 @@ class ListaRegistrosView(QWidget):
         _LARGURA_MIN_COLUNA_TEXTO = 90
         _LARGURA_MAX_COLUNA_TITULO = 480
         _LARGURA_MAX_COLUNA_EXTRA = 320
-        for indice in range(1, len(cabecalhos) - 1):
+        for indice in range(1, indice_espacador):
             self.tabela_widget.resizeColumnToContents(indice)
             largura_max = _LARGURA_MAX_COLUNA_TITULO if indice == 1 else _LARGURA_MAX_COLUNA_EXTRA
             largura = max(
@@ -881,6 +928,11 @@ class ListaRegistrosView(QWidget):
             )
             self.tabela_widget.setColumnWidth(indice, largura)
             cabecalho.setSectionResizeMode(indice, QHeaderView.Interactive)
+
+        # A coluna espacadora e a UNICA "Stretch" -- sozinha, ela absorve
+        # TODO o espaco sobrando (ver comentario la em cima, onde ela e
+        # criada), sem competir com nenhuma outra coluna de dados.
+        cabecalho.setSectionResizeMode(indice_espacador, QHeaderView.Stretch)
 
         # A largura da coluna "Acoes" soma um espaco extra do tamanho da
         # PROPRIA barra de rolagem vertical (perguntado ao Qt, nao um
@@ -891,10 +943,39 @@ class ListaRegistrosView(QWidget):
         cabecalho.setSectionResizeMode(len(cabecalhos) - 1, QHeaderView.Fixed)
         self.tabela_widget.setColumnWidth(len(cabecalhos) - 1, 44 + largura_barra_rolagem)
 
+        # Setinha do cabecalho: mostra em qual coluna a tabela esta ordenada
+        # agora, se a pessoa ja clicou em alguma (fora do estado inicial).
+        indice_ordenado = next(
+            (i for i, campo in self._mapa_colunas_ordenaveis.items() if campo == self._campo_ordenacao), None
+        )
+        if indice_ordenado is None:
+            cabecalho.setSortIndicatorShown(False)
+        else:
+            cabecalho.setSortIndicatorShown(True)
+            ordem = Qt.DescendingOrder if self._ordenacao_reversa else Qt.AscendingOrder
+            cabecalho.setSortIndicator(indice_ordenado, ordem)
+
+    def _ao_clicar_cabecalho_coluna(self, coluna: int) -> None:
+        """Clicar num cabecalho ordena a tabela por essa coluna -- clicar de
+        novo no MESMO cabecalho inverte a direcao (crescente/decrescente).
+        O checkbox, a espacadora invisivel e "Acoes" nao tem campo associado
+        (ver _mapa_colunas_ordenaveis em _popular_tabela) e ignoram o clique."""
+        campo = self._mapa_colunas_ordenaveis.get(coluna)
+        if not campo:
+            return
+        if campo == self._campo_ordenacao:
+            self._ordenacao_reversa = not self._ordenacao_reversa
+        else:
+            self._campo_ordenacao = campo
+            self._ordenacao_reversa = False
+        self._pagina_atual = 0
+        self._aplicar_filtro()
+
     def _ao_clicar_celula(self, linha: int, coluna: int) -> None:
-        # A 1a coluna (checkbox) e a ultima (Acoes) tem widgets proprios que
-        # ja tratam o clique -- so o resto da linha abre o painel de detalhes.
-        if coluna in (0, self.tabela_widget.columnCount() - 1):
+        # A 1a coluna (checkbox), a penultima (espacadora invisivel, sem
+        # conteudo) e a ultima (Acoes, com widget proprio) nao abrem o
+        # painel de detalhes -- so o resto da linha faz isso.
+        if coluna in (0, self.tabela_widget.columnCount() - 2, self.tabela_widget.columnCount() - 1):
             return
         pagina = self._pagina_atual_de_registros()
         if 0 <= linha < len(pagina):

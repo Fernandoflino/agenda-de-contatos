@@ -254,6 +254,28 @@ def test_lista_registros_view_paginacao_muda_pagina(banco_com_dados):
     assert "Página 2" in view.rotulo_pagina_atual.text()
 
 
+def test_lista_registros_view_ordena_por_coluna_ao_clicar_cabecalho(conn, qapp):
+    auth.criar_usuario(conn, "admin", "senha123", "Administrador")
+    for nome in ("Carlos", "Ana", "Bruno"):
+        conn.execute('INSERT INTO PESSOAS ("NOME") VALUES (?)', (nome,))
+    conn.commit()
+
+    view = ListaRegistrosView(conn, PESSOAS, "admin")
+    assert view._campo_ordenacao is None  # estado inicial: ordem padrao pelo campo-titulo
+
+    view._ao_clicar_cabecalho_coluna(1)  # coluna 1 e sempre o campo-titulo
+    assert view._campo_ordenacao == view._campo_titulo
+    crescente = [r["ID"] for r in view._pagina_atual_de_registros()]
+
+    view._ao_clicar_cabecalho_coluna(1)  # clicar de novo no mesmo cabecalho inverte a direcao
+    decrescente = [r["ID"] for r in view._pagina_atual_de_registros()]
+    assert decrescente == list(reversed(crescente))
+
+    # clicar num cabecalho sem campo associado (checkbox) nao muda nada
+    view._ao_clicar_cabecalho_coluna(0)
+    assert [r["ID"] for r in view._pagina_atual_de_registros()] == decrescente
+
+
 def test_lista_registros_view_selecionar_registro_abre_painel_detalhe(banco_com_dados):
     view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
     primeira_pessoa = view._pagina_atual_de_registros()[0]
