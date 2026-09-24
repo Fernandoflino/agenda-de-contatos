@@ -1,0 +1,389 @@
+/*
+Este arquivo define a aparencia visual do programa inteiro: cores, espacamento,
+cantos arredondados, e a "hierarquia" dos botoes (qual botao chama mais
+atencao, qual e neutro, qual e de acao perigosa tipo excluir).
+
+Os textos entre chaves duplas, tipo {{accent}}, sao PLACEHOLDERS: o programa
+troca eles por cores de verdade antes de aplicar este arquivo (ver
+ui/theme.py) -- e assim que a cor de destaque, e o modo claro/escuro,
+funcionam sem precisar editar este arquivo.
+
+IMPORTANTE sobre contraste: aqui embaixo SEMPRE definimos a cor do TEXTO
+junto com a cor do FUNDO de cada tipo de widget (nunca so uma das duas). Se
+so a cor do texto for definida (ou so a do fundo), o Qt usa o padrao do
+tema do Windows pra completar a outra -- e se o Windows estiver no modo
+escuro, isso pode gerar texto escuro num fundo tambem escuro (ou o
+contrario), ilegivel. Foi exatamente esse bug que apareceu antes; definir
+sempre o par (fundo + texto) evita que ele volte.
+*/
+
+QWidget {
+    font-size: 10.5pt;
+    color: {{text}};
+    background-color: {{bg}};
+}
+
+QMainWindow, QDialog {
+    background-color: {{bg}};
+}
+
+QLabel {
+    background-color: transparent;
+    color: {{text}};
+}
+
+QLabel[papel="titulo"] {
+    font-size: 15pt;
+    font-weight: 600;
+    color: {{text}};
+}
+
+QLabel[papel="subtitulo"] {
+    color: {{text_muted}};
+}
+
+QLabel[papel="secao"] {
+    font-size: 11pt;
+    font-weight: 600;
+    color: {{text_muted}};
+    padding-top: 4px;
+}
+
+/* --------------- Barra superior (botao de expandir menu) --------------- */
+
+QToolBar {
+    background-color: {{bg_elevado}};
+    border: none;
+    border-bottom: 1px solid {{borda}};
+    padding: 4px 8px;
+    spacing: 6px;
+}
+
+QToolButton {
+    background-color: transparent;
+    color: {{text}};
+    border: none;
+    border-radius: 6px;
+    padding: 6px 10px;
+}
+
+QToolButton:hover {
+    background-color: {{hover}};
+}
+
+/* -------------------- Sidebar da janela principal -------------------- */
+
+#Sidebar {
+    background-color: {{bg_elevado}};
+    border-right: 1px solid {{borda}};
+}
+
+#TituloPainel {
+    font-size: 13pt;
+    font-weight: 600;
+    padding: 4px 12px 14px 12px;
+    color: {{text}};
+}
+
+#RodapeSidebar {
+    color: {{text_muted}};
+    padding: 2px 12px;
+}
+
+/* --------------------------- Painel (dashboard) ------------------------
+   Os "cartoes de numero" da tela inicial (Painel): um numero grande em
+   destaque (cor de acento) e uma legenda pequena e neutra por baixo.
+------------------------------------------------------------------------ */
+
+#CartaoEstatistica {
+    background-color: {{bg_elevado}};
+    border: 1px solid {{borda}};
+    border-radius: 10px;
+}
+
+/* Cartao de dado FALTANDO (ex.: "Contatos sem e-mail") -- ver
+   ui/dashboard_view.py:_criar_cartao_estatistica(alerta=True). Uma faixa na
+   borda esquerda, separada da cor de destaque, pra chamar atencao mesmo
+   quando a cor de destaque escolhida em Configuracoes for parecida. */
+#CartaoEstatistica[alerta="true"] {
+    border-left: 3px solid {{alerta}};
+}
+
+QLabel[papel="numero-grande"] {
+    font-size: 26pt;
+    font-weight: 700;
+    color: {{accent}};
+    font-family: "Consolas", monospace;
+}
+
+QLabel[papel="numero-grande"][estado="alerta"] {
+    color: {{alerta}};
+}
+
+/* --------------------------- Pilulas/etiquetas -------------------------
+   Selos pequenos e arredondados: um numero de resumo no cabecalho da lista
+   (ex.: "81 registros") ou uma etiqueta de categoria no painel de detalhes
+   (ex.: "Presidente"). Sempre no tom da cor de destaque, discreto.
+------------------------------------------------------------------------ */
+
+QLabel[papel="pilula"] {
+    background-color: {{hover}};
+    color: {{accent}};
+    border-radius: 12px;
+    padding: 4px 12px;
+    font-weight: 600;
+}
+
+/* --------------------------- Painel de detalhes -------------------------
+   O cartao lateral que aparece ao selecionar um registro na tabela.
+------------------------------------------------------------------------ */
+
+#PainelDetalhe {
+    background-color: {{bg_elevado}};
+    border: 1px solid {{borda}};
+    border-radius: 10px;
+}
+
+#AvatarIniciais {
+    border-radius: 24px;
+    color: white;
+    font-weight: 700;
+    font-size: 14pt;
+}
+
+/* -------------------------- Cartoes/paineis --------------------------- */
+
+QGroupBox {
+    background-color: {{bg_elevado}};
+    border: 1px solid {{borda}};
+    border-radius: 10px;
+    margin-top: 14px;
+    padding: 14px 12px 12px 12px;
+    font-weight: 600;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 6px;
+    color: {{text_muted}};
+}
+
+/* ------------------------------ Listas -------------------------------- */
+
+QListWidget {
+    border: 1px solid {{borda}};
+    border-radius: 8px;
+    outline: none;
+    background-color: {{bg_input}};
+    padding: 4px;
+}
+
+QListWidget::item {
+    padding: 8px 10px;
+    border-radius: 6px;
+    margin: 1px 2px;
+    color: {{text}};
+}
+
+QListWidget::item:selected {
+    background-color: {{accent}};
+    color: {{accent_texto}};
+}
+
+QListWidget::item:hover:!selected {
+    background-color: {{hover}};
+}
+
+/* Sidebar usa a lista sem a borda de "caixa", pra parecer menu de navegacao */
+#ListaNavegacao {
+    border: none;
+    background-color: transparent;
+    padding: 4px 8px;
+}
+
+/* ------------------------------ Botoes ---------------------------------
+   Tres "variantes" de botao, escolhidas no codigo Python via
+   botao.setProperty("variante", "..."), pra dar hierarquia visual clara:
+   - (nenhuma variante) = acao principal, cor de destaque
+   - "secundario"       = acao neutra (Cancelar, Fechar, Subir/Descer...)
+   - "perigo"           = acao destrutiva (Excluir, Remover)
+------------------------------------------------------------------------ */
+
+QPushButton {
+    background-color: {{accent}};
+    color: {{accent_texto}};
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-weight: 600;
+}
+
+QPushButton:hover {
+    background-color: {{accent_hover}};
+}
+
+QPushButton:pressed {
+    background-color: {{accent_pressionado}};
+}
+
+QPushButton:disabled {
+    background-color: {{borda}};
+    color: {{text_muted}};
+}
+
+QPushButton[variante="secundario"] {
+    background-color: {{bg_input}};
+    color: {{text}};
+    border: 1px solid {{borda}};
+}
+
+QPushButton[variante="secundario"]:hover {
+    background-color: {{hover}};
+}
+
+QPushButton[variante="perigo"] {
+    background-color: {{perigo}};
+    color: white;
+}
+
+QPushButton[variante="perigo"]:hover {
+    background-color: {{perigo_hover}};
+}
+
+/* --------------------- Campos de entrada de dados ---------------------- */
+
+QLineEdit, QComboBox, QDateEdit {
+    border: 1px solid {{borda}};
+    border-radius: 8px;
+    padding: 7px 10px;
+    background-color: {{bg_input}};
+    color: {{text}};
+    selection-background-color: {{accent}};
+    selection-color: {{accent_texto}};
+}
+
+QLineEdit:focus, QComboBox:focus, QDateEdit:focus {
+    border: 1px solid {{accent}};
+}
+
+QLineEdit::placeholder {
+    color: {{text_muted}};
+}
+
+QLineEdit:disabled, QComboBox:disabled {
+    background-color: {{bg_elevado}};
+    color: {{text_muted}};
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 22px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: {{bg_input}};
+    color: {{text}};
+    border: 1px solid {{borda}};
+    selection-background-color: {{accent}};
+    selection-color: {{accent_texto}};
+    outline: none;
+}
+
+QCheckBox {
+    color: {{text}};
+    spacing: 8px;
+}
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid {{borda}};
+    border-radius: 4px;
+    background-color: {{bg_input}};
+}
+
+QCheckBox::indicator:checked {
+    background-color: {{accent}};
+    border-color: {{accent}};
+}
+
+/* ------------------------------ Tabelas --------------------------------- */
+
+QTableView {
+    background-color: {{bg_input}};
+    alternate-background-color: {{bg_elevado}};
+    gridline-color: {{borda}};
+    color: {{text}};
+    selection-background-color: {{accent}};
+    selection-color: {{accent_texto}};
+    border: 1px solid {{borda}};
+    border-radius: 8px;
+}
+
+QHeaderView::section {
+    background-color: {{bg_elevado}};
+    color: {{text}};
+    padding: 8px;
+    border: none;
+    border-bottom: 2px solid {{borda}};
+    font-weight: 600;
+}
+
+QTableWidget {
+    background-color: {{bg_input}};
+    color: {{text}};
+    gridline-color: {{borda}};
+    border: 1px solid {{borda}};
+    border-radius: 8px;
+    selection-background-color: {{accent}};
+    selection-color: {{accent_texto}};
+}
+
+/* ------------------------- Abas (QTabWidget) ---------------------------- */
+
+QTabWidget::pane {
+    border: 1px solid {{borda}};
+    border-radius: 8px;
+    top: -1px;
+}
+
+QTabBar::tab {
+    background-color: {{bg_elevado}};
+    color: {{text_muted}};
+    padding: 8px 16px;
+    border: 1px solid {{borda}};
+    border-bottom: none;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    margin-right: 2px;
+}
+
+QTabBar::tab:selected {
+    background-color: {{bg_input}};
+    color: {{text}};
+    font-weight: 600;
+}
+
+/* --------------------------- Area rolavel ------------------------------- */
+
+QScrollArea {
+    border: none;
+    background-color: transparent;
+}
+
+QScrollArea > QWidget > QWidget {
+    background-color: transparent;
+}
+
+QSplitter::handle {
+    background-color: {{borda}};
+    width: 1px;
+}
+
+QToolTip {
+    background-color: {{bg_elevado}};
+    color: {{text}};
+    border: 1px solid {{borda}};
+    padding: 4px 8px;
+}

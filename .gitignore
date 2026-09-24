@@ -1,0 +1,15 @@
+# Bancos de dados e planilhas com dados reais de contatos (não devem ir para o GitHub)
+*.abepdb
+Presidentes - Mailing.xlsx
+exportacao.xlsx
+
+# Configurações locais do Claude Code (específicas desta máquina)
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+build/
+dist/

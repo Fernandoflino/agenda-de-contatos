@@ -1,0 +1,9 @@
+=== EMPRESAS (3 exemplos) ===
+{'ID': 1, 'SIGLA': 'TO', 'SIGLA_EMPRESA': 'ATI', 'EMPRESA': 'AGÊNCIA DE TECNOLOGIA DA INFORMAÇÃO DO TOCANTINS', 'EMPRESA_MINUSCULA': 'Agência de Tecnologia da Informação do Tocantins', 'ÍNDICE ABEP': None}
+{'ID': 2, 'SIGLA': 'MS', 'SIGLA_EMPRESA': 'SETDIG', 'EMPRESA': 'SECRETARIA EXECUTIVA DE TRANSFORMAÇÃO DIGITAL', 'EMPRESA_MINUSCULA': 'Secretaria Executiva de Transformação Digital', 'ÍNDICE ABEP': None}
+{'ID': 3, 'SIGLA': 'PB', 'SIGLA_EMPRESA': 'CODATA', 'EMPRESA': 'COMPANHIA DE PROCESSAMENTO DE DADOS DA PARAÍBA', 'EMPRESA_MINUSCULA': 'Companhia de Processamento de Dados da Paraíba', 'ÍNDICE ABEP': None}
+
+=== PESSOAS (3 exemplos, so campos de texto) ===
+{'CARGO': 'Presidente', 'TRATAMENTO': 'Senhor', 'NOME DE GUERRA': 'ALÍRIO', 'NOME': 'ALÍRIO FÉLIX MARTINS BARROS', 'EMAIL': 'alirio.barros@ati.to.gov.br', 'ASSESSOR(A)': None}
+{'CARGO': 'Secretário', 'TRATAMENTO': 'Senhor', 'NOME DE GUERRA': 'ROBSON', 'NOME': 'ROBSON ROBERTO DUARTE ALENCAR', 'EMAIL': 'rroberto@segov.ms.gov.br', 'ASSESSOR(A)': None}
+{'CARGO': 'Presidente', 'TRATAMENTO': 'Senhor', 'NOME DE GUERRA': 'GUIDO', 'NOME': 'ANGELO GIUSEPPE GUIDO DE A. RODRIGUES', 'EMAIL': 'presidencia@codata.pb.gov.br', 'ASSESSOR(A)': None}

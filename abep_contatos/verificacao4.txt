@@ -1,0 +1,2 @@
+{'data_hora': '2026-09-08T23:45:58+00:00', 'usuario': 'admin', 'tabela': 'USUARIOS', 'acao': 'Criar registro', 'detalhes': 'Administrador'}
+{'data_hora': '2026-09-08T23:43:06+00:00', 'usuario': 'admin', 'tabela': 'PESSOAS', 'acao': 'Remover campo', 'detalhes': 'NOME DE GUERRA'}
