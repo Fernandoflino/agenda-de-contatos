@@ -113,10 +113,12 @@ def baixar_instalador(url: str, ao_progresso: Optional[Callable[[int, int], None
 
 class VerificadorAtualizacao(QObject):
     """Roda `buscar_info_atualizacao()` numa thread separada (pra nao travar
-    a interface) e emite `encontrada` na thread principal, ja que sinais do
-    Qt sao seguros de emitir entre threads."""
+    a interface) e emite `encontrada` (achou versao nova) ou `nao_encontrada`
+    (ja esta na mais recente, ou nao foi possivel checar) na thread
+    principal, ja que sinais do Qt sao seguros de emitir entre threads."""
 
     encontrada = Signal(dict)
+    nao_encontrada = Signal()
 
     def iniciar(self) -> None:
         threading.Thread(target=self._verificar, daemon=True).start()
@@ -125,6 +127,8 @@ class VerificadorAtualizacao(QObject):
         info = buscar_info_atualizacao()
         if info:
             self.encontrada.emit(info)
+        else:
+            self.nao_encontrada.emit()
 
 
 class BaixadorAtualizacao(QObject):

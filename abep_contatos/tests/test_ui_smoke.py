@@ -27,6 +27,7 @@ from ui.main_window import MainWindow
 from ui.record_form_dialog import RecordFormDialog
 from ui.settings_dialog import SettingsDialog
 from ui.sheet_manager_dialog import SheetManagerDialog
+from versao import VERSAO
 
 _XLSX_REAL = os.path.join(os.path.dirname(__file__), "..", "..", "Presidentes - Mailing.xlsx")
 
@@ -534,3 +535,77 @@ def test_main_window_sidebar_segue_ordem_manual_das_tabelas(banco_com_dados):
 
     nomes_em_ordem = [janela.lista_navegacao.item(i).data(Qt.UserRole) for i in range(1, janela.lista_navegacao.count())]
     assert nomes_em_ordem == ["USUARIOS", PESSOAS, EMPRESAS]
+
+
+def test_main_window_tem_botao_verificar_atualizacoes(banco_com_dados):
+    usuario = auth.login(banco_com_dados, "admin", "senha123")
+    janela = MainWindow(banco_com_dados, usuario, "teste.abepdb")
+    assert janela.botao_verificar_atualizacoes.text() == "Verificar atualizações..."
+
+
+def test_main_window_verificar_atualizacoes_desabilita_botao_durante_checagem(banco_com_dados, monkeypatch):
+    usuario = auth.login(banco_com_dados, "admin", "senha123")
+    janela = MainWindow(banco_com_dados, usuario, "teste.abepdb")
+    # nao dispara a thread de verdade -- so queremos ver o estado do botao
+    # mudar assim que o clique acontece, antes de qualquer resposta chegar
+    monkeypatch.setattr("ui.main_window.VerificadorAtualizacao.iniciar", lambda self: None)
+
+    janela._verificar_atualizacoes()
+
+    assert not janela.botao_verificar_atualizacoes.isEnabled()
+    assert janela.botao_verificar_atualizacoes.text() == "Verificando..."
+
+
+def test_main_window_verificacao_manual_sem_novidade_avisa_e_restaura_botao(banco_com_dados, monkeypatch):
+    usuario = auth.login(banco_com_dados, "admin", "senha123")
+    janela = MainWindow(banco_com_dados, usuario, "teste.abepdb")
+    janela.botao_verificar_atualizacoes.setEnabled(False)
+    janela.botao_verificar_atualizacoes.setText("Verificando...")
+
+    avisos = []
+    monkeypatch.setattr("ui.main_window.mostrar_info", lambda parent, mensagem: avisos.append(mensagem))
+
+    janela._ao_verificacao_manual_nao_achar()
+
+    assert len(avisos) == 1
+    assert VERSAO in avisos[0]
+    assert janela.botao_verificar_atualizacoes.isEnabled()
+    assert janela.botao_verificar_atualizacoes.text() == "Verificar atualizações..."
+
+
+def test_main_window_verificacao_manual_com_novidade_pergunta_e_ignora_ao_recusar(banco_com_dados, monkeypatch):
+    usuario = auth.login(banco_com_dados, "admin", "senha123")
+    janela = MainWindow(banco_com_dados, usuario, "teste.abepdb")
+
+    chamadas_pergunta = []
+    monkeypatch.setattr(
+        "ui.main_window.perguntar_atualizacao",
+        lambda parent, atual, nova, notas: chamadas_pergunta.append((atual, nova, notas)) or (False, False),
+    )
+    chamadas_download = []
+    monkeypatch.setattr(
+        "ui.main_window.baixar_e_instalar_atualizacao",
+        lambda app, url, parent=None: chamadas_download.append(url),
+    )
+
+    janela._ao_verificacao_manual_achar({"versao": "99.0.0", "notas": "Notas da release", "url_download": "https://x"})
+
+    assert chamadas_pergunta == [(VERSAO, "99.0.0", "Notas da release")]
+    assert chamadas_download == []  # recusou -- nao deve baixar nada
+    assert janela.botao_verificar_atualizacoes.isEnabled()
+
+
+def test_main_window_verificacao_manual_com_novidade_baixa_ao_aceitar(banco_com_dados, monkeypatch):
+    usuario = auth.login(banco_com_dados, "admin", "senha123")
+    janela = MainWindow(banco_com_dados, usuario, "teste.abepdb")
+
+    monkeypatch.setattr("ui.main_window.perguntar_atualizacao", lambda parent, atual, nova, notas: (True, False))
+    chamadas_download = []
+    monkeypatch.setattr(
+        "ui.main_window.baixar_e_instalar_atualizacao",
+        lambda app, url, parent=None: chamadas_download.append(url),
+    )
+
+    janela._ao_verificacao_manual_achar({"versao": "99.0.0", "notas": "", "url_download": "https://exemplo/Setup.exe"})
+
+    assert chamadas_download == ["https://exemplo/Setup.exe"]

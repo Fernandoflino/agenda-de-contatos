@@ -33,15 +33,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from atualizacao import VerificadorAtualizacao
+from config import app_config
 from db import auth, settings
 from db.schema import PESSOAS
 from db.tables import get_table_order
 from ui.dashboard_view import DashboardView
+from ui.dialogs import baixar_e_instalar_atualizacao, mostrar_info, perguntar_atualizacao
 from ui.export_dialog import ExportDialog
 from ui.lista_registros_view import ListaRegistrosView
 from ui.settings_dialog import SettingsDialog
 from ui.theme import aplicar_tema, marcar_variante
 from versao import VERSAO
+
+_TEXTO_BOTAO_VERIFICAR = "Verificar atualizações..."
 
 # Valor especial guardado no item de navegacao do Painel (dashboard) -- pra
 # diferenciar ele das tabelas de verdade, que usam o proprio nome da tabela
@@ -153,6 +158,15 @@ class MainWindow(QMainWindow):
         marcar_variante(botao_trocar, "secundario")
         botao_trocar.clicked.connect(self.trocar_banco_solicitado.emit)
         rodape.addWidget(botao_trocar)
+
+        # Alem da checagem automatica e silenciosa que roda ao abrir o
+        # programa (ver main.py), este botao deixa checar na hora, por
+        # pedido explicito -- util pra confirmar que realmente nao ha nada
+        # novo, sem precisar fechar e abrir o programa de novo.
+        self.botao_verificar_atualizacoes = QPushButton(_TEXTO_BOTAO_VERIFICAR)
+        marcar_variante(self.botao_verificar_atualizacoes, "secundario")
+        self.botao_verificar_atualizacoes.clicked.connect(self._verificar_atualizacoes)
+        rodape.addWidget(self.botao_verificar_atualizacoes)
 
         # Mostra a versao rodando -- se voce editou o codigo e a janela
         # ainda mostra a versao antiga, feche e abra o programa de novo (o
@@ -273,3 +287,40 @@ class MainWindow(QMainWindow):
         pagina_atual = self.paginas.currentWidget()
         if pagina_atual is not None and hasattr(pagina_atual, "carregar_dados"):
             pagina_atual.carregar_dados()
+
+    # -- verificacao manual de atualizacoes -----------------------------------
+
+    def _verificar_atualizacoes(self) -> None:
+        """Chamado ao clicar em "Verificar atualizações..." -- dispara a
+        mesma checagem que roda escondida ao abrir o programa (ver
+        atualizacao.py), mas por ser um pedido explicito, sempre mostra
+        algum resultado pro usuario (achou versao nova, ou confirma que a
+        instalada ja e a mais recente), em vez de falhar em silencio."""
+        self.botao_verificar_atualizacoes.setEnabled(False)
+        self.botao_verificar_atualizacoes.setText("Verificando...")
+
+        # precisa continuar existindo ate a checagem terminar, por isso fica
+        # guardado numa referencia da janela (nao descartado ao sair do
+        # metodo).
+        self._verificador_manual = VerificadorAtualizacao()
+        self._verificador_manual.encontrada.connect(self._ao_verificacao_manual_achar)
+        self._verificador_manual.nao_encontrada.connect(self._ao_verificacao_manual_nao_achar)
+        self._verificador_manual.iniciar()
+
+    def _restaurar_botao_verificar_atualizacoes(self) -> None:
+        self.botao_verificar_atualizacoes.setEnabled(True)
+        self.botao_verificar_atualizacoes.setText(_TEXTO_BOTAO_VERIFICAR)
+
+    def _ao_verificacao_manual_nao_achar(self) -> None:
+        self._restaurar_botao_verificar_atualizacoes()
+        mostrar_info(self, f"Você já está com a versão mais recente instalada (Versão {VERSAO}).")
+
+    def _ao_verificacao_manual_achar(self, info: dict) -> None:
+        self._restaurar_botao_verificar_atualizacoes()
+        # pedido explicito -- pergunta de novo mesmo que essa versao tenha
+        # sido marcada como "nao perguntar de novo" na checagem automatica.
+        quer_atualizar, ignorar = perguntar_atualizacao(self, VERSAO, info["versao"], info["notas"])
+        if quer_atualizar:
+            baixar_e_instalar_atualizacao(QApplication.instance(), info["url_download"], parent=self)
+        elif ignorar:
+            app_config.definir_versao_ignorada(info["versao"])

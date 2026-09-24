@@ -1,7 +1,7 @@
 import json
 from unittest.mock import MagicMock, patch
 
-from atualizacao import buscar_info_atualizacao, versao_e_mais_nova
+from atualizacao import VerificadorAtualizacao, buscar_info_atualizacao, versao_e_mais_nova
 
 
 def test_versao_remota_mais_nova():
@@ -82,3 +82,25 @@ def test_nao_acha_atualizacao_sem_asset_exe(urlopen_mock):
 @patch("atualizacao.urllib.request.urlopen", side_effect=TimeoutError)
 def test_falha_de_rede_devolve_none_em_vez_de_propagar(urlopen_mock):
     assert buscar_info_atualizacao() is None
+
+
+@patch("atualizacao.buscar_info_atualizacao", return_value=None)
+def test_verificador_emite_nao_encontrada_quando_nao_ha_versao_nova(mock_buscar):
+    verificador = VerificadorAtualizacao()
+    recebidos = []
+    verificador.nao_encontrada.connect(lambda: recebidos.append(True))
+
+    verificador._verificar()
+
+    assert recebidos == [True]
+
+
+@patch("atualizacao.buscar_info_atualizacao", return_value={"versao": "9.0.0", "notas": "", "url_download": "https://x"})
+def test_verificador_emite_encontrada_quando_ha_versao_nova(mock_buscar):
+    verificador = VerificadorAtualizacao()
+    recebidos = []
+    verificador.encontrada.connect(recebidos.append)
+
+    verificador._verificar()
+
+    assert recebidos == [{"versao": "9.0.0", "notas": "", "url_download": "https://x"}]

@@ -6,7 +6,11 @@ cada tela, ele fica centralizado aqui.
 """
 from __future__ import annotations
 
-from PySide6.QtWidgets import QCheckBox, QMessageBox, QWidget
+import subprocess
+
+from PySide6.QtWidgets import QApplication, QCheckBox, QMessageBox, QProgressDialog, QWidget
+
+from atualizacao import BaixadorAtualizacao
 
 
 def confirmar_exclusao(parent: QWidget, rotulo: str, tipo: str = "registro") -> bool:
@@ -63,3 +67,35 @@ def perguntar_atualizacao(parent: QWidget, versao_atual: str, versao_nova: str, 
 
     caixa.exec()
     return caixa.clickedButton() is botao_atualizar, checkbox.isChecked()
+
+
+def baixar_e_instalar_atualizacao(app: QApplication, url_download: str, parent: QWidget = None) -> None:
+    """Baixa o instalador da nova versao mostrando uma barra de progresso e,
+    ao terminar, abre o instalador e fecha o programa (precisa fechar antes
+    porque o instalador nao consegue sobrescrever os arquivos enquanto o
+    programa ainda esta rodando)."""
+    progresso = QProgressDialog("Baixando atualização...", "", 0, 0, parent)
+    progresso.setWindowTitle("Atualizando")
+    progresso.setCancelButton(None)
+    progresso.setMinimumDuration(0)
+
+    baixador = BaixadorAtualizacao(url_download)
+
+    def _ao_progredir(lido: int, total: int) -> None:
+        progresso.setMaximum(total)
+        progresso.setValue(lido)
+
+    def _ao_concluir(caminho_instalador: str) -> None:
+        progresso.close()
+        subprocess.Popen([caminho_instalador], close_fds=True)
+        app.quit()
+
+    def _ao_falhar(mensagem: str) -> None:
+        progresso.close()
+        mostrar_erro(parent, f"Não foi possível baixar a atualização:\n{mensagem}")
+
+    baixador.progresso.connect(_ao_progredir)
+    baixador.concluido.connect(_ao_concluir)
+    baixador.falhou.connect(_ao_falhar)
+    baixador.iniciar()
+    progresso.exec()
