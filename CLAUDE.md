@@ -4,14 +4,36 @@ Este repositório contém o **Painel de Contatos** (ABEP-TIC), dentro da pasta
 `abep_contatos/`. Documentação completa de desenvolvimento e build está em
 [abep_contatos/README.md](abep_contatos/README.md).
 
-## Gerar instalador antes de cada `git push`
+## Hook automático: bump de versão + instalador a cada `git push`
 
-Sempre que for feito um `git push` neste repositório, gere um instalador
-novo antes (ou logo depois) do push, com o número da versão no nome do
-arquivo -- não pule esse passo por conta própria, mas lembre o usuário dele
-se ele pedir para dar push sem mencionar o instalador.
+Existe um hook `pre-push` instalado em `.git/hooks/pre-push` (não versionado
+pelo Git, então não aparece num `git clone` novo -- se o repositório for
+clonado de novo em outra máquina, reinstale-o) que roda sozinho a cada
+`git push` feito localmente, sem precisar pedir pra mim:
 
-Passos (dentro de `abep_contatos/`):
+1. **Aumenta a versão** (`VERSAO`/`VERSAO_DATA` em `abep_contatos/versao.py`
+   e `MyAppVersion` em `abep_contatos/packaging/installer.iss`, incrementando
+   o número de patch, ex.: `0.11.0` -> `0.11.1`) e commita isso sozinho como
+   `Bump versao para X.Y.Z`.
+2. Como o Git já decide o que vai mandar *antes* de rodar o hook, esse commit
+   novo não entra no push que acabou de ser disparado -- o hook cancela esse
+   primeiro push de propósito (mensagem `push CANCELADO de proposito`) e
+   pede pra rodar `git push` de novo. Da segunda vez, ele reconhece que o
+   commit no topo já é o de bump e pula direto pro passo 3.
+3. **Gera o instalador** (PyInstaller + Inno Setup) com o número da versão
+   já atualizado no nome do arquivo, e deixa o push seguir. Se o build
+   falhar (ex.: `.venv` ou Inno Setup ausentes nesta máquina), só avisa e
+   deixa o push continuar mesmo assim -- nunca bloqueia por causa disso.
+
+Ou seja: **um `git push` normal, feito pelo usuário direto no terminal,
+sempre precisa ser digitado duas vezes na prática** (a primeira é
+cancelada pelo bump de versão). Se isso confundir o usuário, explique esse
+comportamento -- não é um erro.
+
+Se _eu_ (Claude) for quem está dando o push numa sessão, não preciso rodar
+os passos manuais abaixo -- o hook já cuida disso sozinho quando eu rodar
+`git push`. Os passos manuais servem pra gerar o instalador sem precisar
+fazer push (ex.: só pra testar), ou caso o hook não exista/falhe:
 
 ```bat
 .venv\Scripts\pip install -r requirements-dev.txt
