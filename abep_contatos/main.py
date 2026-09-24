@@ -22,18 +22,21 @@ O fluxo geral, do inicio ao fim, e:
 """
 from __future__ import annotations
 
+import subprocess
 import sys
 
-from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtWidgets import QApplication, QDialog, QProgressDialog
 
+from atualizacao import BaixadorAtualizacao, VerificadorAtualizacao
 from config import app_config
 from db import connection
 from ui import primeiro_uso
-from ui.dialogs import mostrar_erro
+from ui.dialogs import mostrar_erro, perguntar_atualizacao
 from ui.launcher_dialog import MODO_NOVO, LauncherDialog
 from ui.login_dialog import LoginDialog
 from ui.main_window import MainWindow
 from ui.theme import aplicar_tema
+from versao import VERSAO
 
 
 def _escolher_e_abrir_banco():
@@ -61,12 +64,66 @@ def _escolher_e_abrir_banco():
         return conn, caminho, eh_novo
 
 
+def _baixar_e_instalar_atualizacao(app: QApplication, url_download: str) -> None:
+    """Baixa o instalador da nova versao mostrando uma barra de progresso e,
+    ao terminar, abre o instalador e fecha o programa (precisa fechar antes
+    porque o instalador nao consegue sobrescrever os arquivos enquanto o
+    programa ainda esta rodando)."""
+    progresso = QProgressDialog("Baixando atualização...", "", 0, 0)
+    progresso.setWindowTitle("Atualizando")
+    progresso.setCancelButton(None)
+    progresso.setMinimumDuration(0)
+
+    baixador = BaixadorAtualizacao(url_download)
+
+    def _ao_progredir(lido: int, total: int) -> None:
+        progresso.setMaximum(total)
+        progresso.setValue(lido)
+
+    def _ao_concluir(caminho_instalador: str) -> None:
+        progresso.close()
+        subprocess.Popen([caminho_instalador], close_fds=True)
+        app.quit()
+
+    def _ao_falhar(mensagem: str) -> None:
+        progresso.close()
+        mostrar_erro(None, f"Não foi possível baixar a atualização:\n{mensagem}")
+
+    baixador.progresso.connect(_ao_progredir)
+    baixador.concluido.connect(_ao_concluir)
+    baixador.falhou.connect(_ao_falhar)
+    baixador.iniciar()
+    progresso.exec()
+
+
+def _tratar_atualizacao_disponivel(app: QApplication, info: dict) -> None:
+    """Chamado quando o VerificadorAtualizacao acha uma versao mais nova --
+    pergunta pro usuario se quer atualizar agora, respeitando a escolha de
+    "nao perguntar de novo" salva na ultima vez."""
+    if app_config.versao_ignorada() == info["versao"]:
+        return
+
+    quer_atualizar, ignorar = perguntar_atualizacao(None, VERSAO, info["versao"], info["notas"])
+    if quer_atualizar:
+        _baixar_e_instalar_atualizacao(app, info["url_download"])
+    elif ignorar:
+        app_config.definir_versao_ignorada(info["versao"])
+
+
 def main() -> int:
     app = QApplication(sys.argv)
     # "Fusion" e um estilo visual do Qt que parece bem mais atual do que o
     # padrao do Windows antigo -- e o ponto de partida sobre o qual o nosso
     # style.qss (ui/theme.py) desenha o resto da aparencia personalizada.
     app.setStyle("Fusion")
+
+    # Checa se ha uma versao mais nova publicada no GitHub em paralelo com o
+    # resto da abertura do programa (tela inicial, login etc.) -- sem
+    # atrasar nada disso. `verificador` precisa continuar existindo ate a
+    # checagem terminar, por isso fica guardado aqui (nao descartado).
+    verificador = VerificadorAtualizacao()
+    verificador.encontrada.connect(lambda info: _tratar_atualizacao_disponivel(app, info))
+    verificador.iniciar()
 
     while True:
         conn, caminho, eh_novo = _escolher_e_abrir_banco()

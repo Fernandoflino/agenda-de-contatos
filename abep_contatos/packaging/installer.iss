@@ -18,10 +18,11 @@
 ;         ISCC packaging/installer.iss
 ;      (ou abra este arquivo com o programa "Inno Setup Compiler" e clique
 ;      em "Compile")
-;   3. O instalador final aparece em packaging/saida/PainelDeContatosSetup.exe
-;      -- esse E o arquivo que se distribui pros usuarios finais. Ele ja leva
-;      tudo que o programa precisa (nao exige Python instalado no computador
-;      de quem for usar).
+;   3. O instalador final aparece em
+;      packaging/saida/PainelDeContatosSetup-X.Y.Z.exe (com o numero da
+;      versao no nome) -- esse E o arquivo que se distribui pros usuarios
+;      finais. Ele ja leva tudo que o programa precisa (nao exige Python
+;      instalado no computador de quem for usar).
 ;
 ; NOTA IMPORTANTE sobre o aviso do Windows: como este instalador nao tem uma
 ; "assinatura digital" (um certificado pago, comprado de uma empresa
@@ -33,7 +34,10 @@
 ; ============================================================================
 
 #define MyAppName "Painel de Contatos"
-#define MyAppVersion "1.0.0"
+; Precisa ser atualizado junto com VERSAO em versao.py e com a tag da
+; Release publicada no GitHub (ex.: v0.12.0) -- e essa tag que o aviso de
+; atualizacao dentro do programa usa pra saber se ha uma versao mais nova.
+#define MyAppVersion "0.11.0"
 #define MyAppPublisher "ABEP-TIC"
 #define MyAppExeName "PainelDeContatos.exe"
 #define MyAppAssocExt ".abepdb"
@@ -54,8 +58,11 @@ DisableProgramGroupPage=yes
 ; Icone do proprio Setup.exe (o instalador) -- o mesmo usado no programa.
 SetupIconFile=..\resources\icone.ico
 ; A pasta onde o instalador final (o Setup.exe) e salvo depois de compilado.
+; O numero da versao entra no NOME do arquivo (ex.: PainelDeContatosSetup-
+; 0.11.0.exe) pra nao sobrescrever o instalador de uma versao anterior e pra
+; ficar claro, so de olhar o nome do arquivo, qual versao ele instala.
 OutputDir=saida
-OutputBaseFilename=PainelDeContatosSetup
+OutputBaseFilename=PainelDeContatosSetup-{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

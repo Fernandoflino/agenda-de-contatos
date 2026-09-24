@@ -90,6 +90,18 @@ def definir_ultimo_usuario(usuario: str) -> None:
     _salvar(dados)
 
 
+def versao_ignorada() -> str:
+    """Versao que o usuario marcou como "nao perguntar de novo" na caixa de
+    aviso de atualizacao -- fica vazia se nunca marcou nenhuma."""
+    return _carregar().get("versao_ignorada", "")
+
+
+def definir_versao_ignorada(versao: str) -> None:
+    dados = _carregar()
+    dados["versao_ignorada"] = versao
+    _salvar(dados)
+
+
 def remover_recente(caminho: str) -> None:
     """Tira um caminho da lista de recentes (ex.: usuario clicou em "remover
     da lista" na tela inicial)."""

@@ -55,7 +55,8 @@ Depois, com o Inno Setup instalado:
 "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\installer.iss
 ```
 
-O instalador final aparece em `packaging\saida\PainelDeContatosSetup.exe` —
+O instalador final aparece em `packaging\saida\PainelDeContatosSetup-X.Y.Z.exe`
+(com o número da versão no nome, ex.: `PainelDeContatosSetup-0.11.0.exe`) —
 esse é o arquivo para distribuir. Ele já contém tudo que o programa precisa
 para rodar, sem exigir Python instalado na máquina de quem for usar.
 
@@ -64,6 +65,37 @@ para rodar, sem exigir Python instalado na máquina de quem for usar.
 > desconhecido" — é normal para programas internos e não indica problema.
 > Para remover esse aviso seria necessário comprar um certificado de
 > assinatura de código (fora do escopo deste projeto).
+
+## Publicar uma nova versão (pra o aviso de atualização funcionar)
+
+Toda vez que o programa é aberto, ele confere sozinho (em segundo plano, sem
+travar nada) se existe uma versão mais nova publicada no GitHub e, se
+existir, pergunta ao usuário se quer atualizar agora — se ele aceitar, o
+programa baixa o instalador novo, abre ele e se fecha sozinho.
+
+Pra isso funcionar, publicar uma versão nova envolve 4 passos:
+
+```bat
+REM 1) Aumentar o numero em versao.py (VERSAO e VERSAO_DATA)
+REM 2) Aumentar MyAppVersion em packaging\installer.iss pro mesmo numero
+.venv\Scripts\pip install -r requirements-dev.txt
+.venv\Scripts\pyinstaller packaging\PainelDeContatos.spec
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\installer.iss
+```
+
+O instalador final aparece em `packaging\saida\PainelDeContatosSetup-X.Y.Z.exe`
+(mesmo processo já descrito acima). O último passo é publicar uma
+**Release** no GitHub, em
+<https://github.com/Fernandoflino/agenda-de-contatos/releases/new>:
+
+- Tag: `vX.Y.Z` — o mesmo número usado em `versao.py` (ex.: `v0.12.0`).
+- Anexar o arquivo `PainelDeContatosSetup-X.Y.Z.exe` como asset da release.
+
+Sem esse último passo, o número em `versao.py` até muda no código-fonte,
+mas ninguém recebe aviso nenhum — é a Release publicada que o aviso de
+atualização (`atualizacao.py`) consulta pra saber se há algo mais novo.
+Quem já tem o programa aberto numa versão mais antiga vê o aviso
+automaticamente na próxima vez que abrir, sem precisar fazer mais nada.
 
 ## Estrutura do projeto
 
@@ -74,6 +106,8 @@ para rodar, sem exigir Python instalado na máquina de quem for usar.
   grade genérica (empresas e tabelas extras), formulários, configurações.
 - `config/` — preferências do computador/usuário Windows (lista de bancos
   recentes), guardadas fora do arquivo `.abepdb`.
+- `atualizacao.py` — checagem de nova versão via GitHub Releases e download
+  do instalador (ver seção acima).
 - `packaging/` — arquivos usados para gerar o instalador (`.spec` do
   PyInstaller e `.iss` do Inno Setup).
 - `tests/` — testes automatizados (`pytest`).
