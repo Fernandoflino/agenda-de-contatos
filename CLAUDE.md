@@ -53,5 +53,12 @@ estar sincronizado com `VERSAO` em `abep_contatos/versao.py` (ver comentário
 no topo desse arquivo).
 
 Publicar o instalador como asset de uma Release no GitHub (tag `vX.Y.Z`) é
-uma ação pública -- confirme com o usuário antes de criar/publicar a Release,
-como em qualquer outra ação que afeta um repositório remoto.
+uma ação pública que normalmente pediria confirmação antes de criar/publicar,
+como qualquer outra ação que afeta um repositório remoto -- **mas o usuário
+já autorizou isso como padrão**: sempre que eu (Claude) fizer um `git push`
+nesse repositório, depois que o push for concluído eu devo criar a tag
+`vX.Y.Z` correspondente à versão que acabou de subir, gerar o instalador (se
+ainda não tiver sido gerado pelo hook) e publicar a Release no GitHub com
+esse instalador como asset -- sem perguntar de novo a cada vez. As notas da
+release devem resumir o que mudou desde a release anterior (ver releases
+anteriores como referência de formato).
