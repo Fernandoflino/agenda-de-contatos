@@ -21,5 +21,5 @@ README.md) e publicar uma Release no GitHub com tag "vX.Y.Z" (mesmo
 numero) e o instalador anexado como asset -- sem esse ultimo passo,
 ninguem recebe aviso nenhum.
 """
-VERSAO = "0.11.8"
+VERSAO = "0.11.9"
 VERSAO_DATA = "2026-09-25"
