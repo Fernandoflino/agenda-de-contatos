@@ -21,14 +21,10 @@ from ui.dialogs import mostrar_erro, mostrar_info
 _CARACTERES_INVALIDOS_ARQUIVO = re.compile(r'[<>:"/\\|?*]')
 
 
-def redimensionar_para_bytes_png(caminho_imagem: str, tamanho_max: int) -> bytes | None:
-    """Le um arquivo de imagem do disco, redimensiona (se for maior que
-    `tamanho_max`) e devolve os bytes prontos no formato PNG, pra gravar
-    direto numa coluna BLOB do banco de dados. Devolve None se o arquivo
-    nao for uma imagem valida."""
-    pixmap = QPixmap(caminho_imagem)
-    if pixmap.isNull():
-        return None
+def pixmap_para_bytes_png(pixmap: QPixmap, tamanho_max: int) -> bytes:
+    """Redimensiona um QPixmap (se for maior que `tamanho_max`) e devolve
+    os bytes prontos no formato PNG, pra gravar direto numa coluna BLOB do
+    banco de dados."""
     if pixmap.width() > tamanho_max or pixmap.height() > tamanho_max:
         pixmap = pixmap.scaled(tamanho_max, tamanho_max, Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
@@ -37,6 +33,16 @@ def redimensionar_para_bytes_png(caminho_imagem: str, tamanho_max: int) -> bytes
     buffer.open(QIODevice.WriteOnly)
     pixmap.save(buffer, "PNG")
     return bytes(dados)
+
+
+def redimensionar_para_bytes_png(caminho_imagem: str, tamanho_max: int) -> bytes | None:
+    """Le um arquivo de imagem do disco e devolve os bytes redimensionados
+    em PNG (ver pixmap_para_bytes_png) -- devolve None se o arquivo nao for
+    uma imagem valida."""
+    pixmap = QPixmap(caminho_imagem)
+    if pixmap.isNull():
+        return None
+    return pixmap_para_bytes_png(pixmap, tamanho_max)
 
 
 def pixmap_circular(dados_png: bytes, tamanho: int) -> QPixmap | None:

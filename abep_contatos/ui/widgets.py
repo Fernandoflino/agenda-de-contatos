@@ -8,9 +8,11 @@ podem ser mais de uma).
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -25,8 +27,9 @@ from PySide6.QtWidgets import (
     QWidgetAction,
 )
 
+from ui.ajustar_foto_dialog import AjustarFotoDialog
 from ui.avatar import criar_avatar
-from ui.imagens import redimensionar_para_bytes_png
+from ui.imagens import pixmap_para_bytes_png
 
 _TAMANHO_MAX_FOTO = 512  # pixels -- um pouco maior que o logo (256): a foto e vista ampliada no popup
 
@@ -241,11 +244,22 @@ class WidgetFoto(QWidget):
         )
         if not caminho:
             return
-        dados_png = redimensionar_para_bytes_png(caminho, _TAMANHO_MAX_FOTO)
-        if not dados_png:
+        pixmap_original = QPixmap(caminho)
+        if pixmap_original.isNull():
             return
-        self._foto_bytes = dados_png
+
+        recorte = self._abrir_ajuste(pixmap_original)
+        if recorte is None:
+            return  # cancelou o ajuste -- mantem a foto que ja estava
+
+        self._foto_bytes = pixmap_para_bytes_png(recorte, _TAMANHO_MAX_FOTO)
         self._atualizar_preview()
+
+    def _abrir_ajuste(self, pixmap_original: QPixmap) -> QPixmap | None:
+        dialogo = AjustarFotoDialog(pixmap_original, parent=self)
+        if dialogo.exec() != QDialog.Accepted:
+            return None
+        return dialogo.resultado()
 
     def _remover_foto(self) -> None:
         self._foto_bytes = None

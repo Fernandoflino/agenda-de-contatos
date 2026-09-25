@@ -690,6 +690,60 @@ def test_record_form_dialog_foto_remover_limpa_ao_salvar(banco_com_dados):
     assert dialogo.resultado()["FOTO_MIME"] is None
 
 
+def test_widget_foto_escolher_imagem_abre_ajuste_e_usa_recorte(qapp, monkeypatch, tmp_path):
+    """Escolher um arquivo abre o dialogo de ajustar/girar -- o resultado
+    salvo no campo e o RECORTE devolvido por esse dialogo, nao o arquivo
+    original direto."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor, QPixmap
+    from PySide6.QtWidgets import QDialog, QFileDialog
+
+    from ui.ajustar_foto_dialog import AjustarFotoDialog
+    from ui.widgets import WidgetFoto
+
+    original = QPixmap(400, 300)
+    original.fill(QColor("blue"))
+    caminho = tmp_path / "original.png"
+    original.save(str(caminho), "PNG")
+
+    recorte = QPixmap(320, 320)
+    recorte.fill(Qt.red)
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(caminho), "")))
+    monkeypatch.setattr(AjustarFotoDialog, "exec", lambda self: QDialog.Accepted)
+    monkeypatch.setattr(AjustarFotoDialog, "resultado", lambda self: recorte)
+
+    widget = WidgetFoto("Fulano", None)
+    widget._escolher_imagem()
+
+    pixmap_salvo = QPixmap()
+    pixmap_salvo.loadFromData(widget.foto_bytes())
+    assert pixmap_salvo.width() == 320
+    assert pixmap_salvo.height() == 320
+
+
+def test_widget_foto_cancelar_ajuste_mantem_foto_anterior(qapp, monkeypatch, tmp_path):
+    from PySide6.QtGui import QColor, QPixmap
+    from PySide6.QtWidgets import QDialog, QFileDialog
+
+    from ui.ajustar_foto_dialog import AjustarFotoDialog
+    from ui.widgets import WidgetFoto
+
+    original = QPixmap(400, 300)
+    original.fill(QColor("blue"))
+    caminho = tmp_path / "original.png"
+    original.save(str(caminho), "PNG")
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(caminho), "")))
+    monkeypatch.setattr(AjustarFotoDialog, "exec", lambda self: QDialog.Rejected)
+
+    foto_anterior = b"foto que ja existia"
+    widget = WidgetFoto("Fulano", foto_anterior)
+    widget._escolher_imagem()
+
+    assert widget.foto_bytes() == foto_anterior
+
+
 def test_record_form_dialog_categorias_respeita_ordem_configurada_das_colunas(qapp, conn):
     """Regressao: a linha "Categorias" (selecao multipla) sempre ia parar no
     FIM do formulario, ignorando a posicao que o usuario configurou pra
