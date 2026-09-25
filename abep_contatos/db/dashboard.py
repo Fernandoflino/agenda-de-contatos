@@ -35,6 +35,7 @@ class Aniversariante:
     data_nascimento: str  # formato ISO ('AAAA-MM-DD'), como fica guardado no banco
     dias_ate: int         # 0 = hoje, 1 = amanha, etc.
     idade_ao_completar: int
+    foto: bytes | None = None
 
 
 def _proximo_aniversario(data_nascimento_iso: str, hoje: date) -> tuple[int, int] | None:
@@ -93,6 +94,7 @@ def proximos_aniversarios(
             data_nascimento=pessoa.get("DATA DE NASCIMENTO"),
             dias_ate=dias_ate,
             idade_ao_completar=idade,
+            foto=pessoa.get("FOTO"),
         ))
 
     encontrados.sort(key=lambda a: a.dias_ate)

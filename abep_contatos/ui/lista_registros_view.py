@@ -56,8 +56,10 @@ from PySide6.QtWidgets import (
 from db import anotacoes, categorias, log, preferencias, records, settings
 from db.schema import PESSOAS
 from db.tables import get_column_order
-from ui import field_types, icons
+from ui import field_types, icons, imagens
+from ui.avatar import AvatarClicavel
 from ui.avatar import criar_avatar as _criar_avatar
+from ui.foto_popup_dialog import FotoPopupDialog
 from ui.dialogs import confirmar_exclusao, mostrar_erro, mostrar_info
 from ui.export_dialog import ExportDialog
 from ui.record_form_dialog import RecordFormDialog
@@ -591,6 +593,8 @@ class ListaRegistrosView(QWidget):
         empresa nao faria sentido nenhum pra quem esta usando o programa."""
         opcoes = []
         for coluna in colunas:
+            if coluna in ("FOTO", "FOTO_MIME"):
+                continue  # nao faz sentido "filtrar por foto" digitando texto
             if coluna == "ID_EMPRESA":
                 opcoes.append(("Empresa", "_EMPRESA_BUSCA"))
             else:
@@ -915,7 +919,7 @@ class ListaRegistrosView(QWidget):
             layout_titulo = QHBoxLayout(celula_titulo)
             layout_titulo.setContentsMargins(6, 4, 6, 4)
             layout_titulo.setSpacing(8)
-            layout_titulo.addWidget(_criar_avatar(titulo_valor, tamanho=30))
+            layout_titulo.addWidget(self._criar_avatar_registro(registro, titulo_valor, tamanho=30))
             if id_registro in ids_com_anotacao:
                 rotulo_nota = QLabel()
                 rotulo_nota.setPixmap(icons.icone("nota", cor_texto_mutado(self.conn)).pixmap(14, 14))
@@ -1053,6 +1057,15 @@ class ListaRegistrosView(QWidget):
     def _subtitulo_detalhe(self, registro: dict) -> str | None:
         return str(registro["CARGO"]) if registro.get("CARGO") else None
 
+    def _criar_avatar_registro(self, registro: dict, titulo_valor: str, tamanho: int) -> QWidget:
+        """Avatar de um registro (linha da lista ou painel de detalhes) --
+        foto de verdade quando `registro` tem (clicavel, abre o popup de
+        foto ampliada), ou o avatar de iniciais de sempre quando nao tem."""
+        avatar = _criar_avatar(titulo_valor, tamanho=tamanho, foto_bytes=registro.get("FOTO"), clicavel=True)
+        if isinstance(avatar, AvatarClicavel):
+            avatar.clicado.connect(lambda: FotoPopupDialog(registro, parent=self).exec())
+        return avatar
+
     def _mostrar_detalhe(self, registro: dict) -> None:
         self._registro_detalhe = registro
         self.painel_detalhe.show()
@@ -1064,7 +1077,7 @@ class ListaRegistrosView(QWidget):
 
         linha_avatar = QHBoxLayout()
         linha_avatar.setSpacing(10)
-        linha_avatar.addWidget(_criar_avatar(titulo_valor, tamanho=56))
+        linha_avatar.addWidget(self._criar_avatar_registro(registro, titulo_valor, tamanho=56))
         bloco_nome = QVBoxLayout()
         bloco_nome.setSpacing(2)
         rotulo_nome = QLabel(titulo_valor)
@@ -1177,7 +1190,7 @@ class ListaRegistrosView(QWidget):
 
         linha = 0
         for campo in colunas:
-            if campo in ("ID", "ID_EMPRESA") or not registro.get(campo):
+            if campo in ("ID", "ID_EMPRESA", "FOTO", "FOTO_MIME") or not registro.get(campo):
                 continue
             rotulo = QLabel(field_types.rotulo_amigavel(campo))
             rotulo.setProperty("papel", "subtitulo")
@@ -1295,6 +1308,7 @@ class ListaRegistrosView(QWidget):
             menu.addAction("Mudar empresa...", self._acao_massa_mudar_empresa)
             menu.addAction("Mudar Cargo...", lambda: self._acao_massa_mudar_campo_texto("CARGO", "Cargo"))
             menu.addAction("Mudar Tratamento...", lambda: self._acao_massa_mudar_campo_texto("TRATAMENTO", "Tratamento"))
+            menu.addAction("Baixar fotos...", self._acao_massa_baixar_fotos)
             menu.addSeparator()
         menu.addAction("Exportar selecionados...", self._acao_massa_exportar_selecionados)
         return menu
@@ -1357,3 +1371,9 @@ class ListaRegistrosView(QWidget):
         if not self._ids_selecionados:
             return
         ExportDialog(self.conn, tabela_padrao=self.tabela, parent=self, ids_selecionados=set(self._ids_selecionados)).exec()
+
+    def _acao_massa_baixar_fotos(self) -> None:
+        if not self._ids_selecionados:
+            return
+        selecionados = [r for r in self._todos_registros if r["ID"] in self._ids_selecionados]
+        imagens.salvar_fotos_via_dialogo(self, selecionados)

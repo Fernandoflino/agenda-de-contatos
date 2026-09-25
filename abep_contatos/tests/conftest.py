@@ -10,6 +10,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from db import schema
 
 
+@pytest.fixture(scope="session")
+def qapp():
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    yield app
+
+
 @pytest.fixture(autouse=True)
 def sem_caixas_de_dialogo_bloqueantes(monkeypatch):
     """Impede que uma janela de aviso/erro real (QMessageBox) trave um teste

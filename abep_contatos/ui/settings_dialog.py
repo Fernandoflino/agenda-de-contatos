@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -45,6 +45,7 @@ from db.tables import get_column_order, list_data_sheets
 from ui import field_types
 from ui.categorias_dialog import CategoriasDialog
 from ui.historico_dialog import HistoricoDialog
+from ui.imagens import redimensionar_para_bytes_png
 from ui.lixeira_dialog import LixeiraDialog
 from ui.sheet_manager_dialog import SheetManagerDialog
 from ui.theme import marcar_variante
@@ -61,23 +62,6 @@ _TAMANHO_MAX_LOGO = 256  # pixels -- evita gravar imagens gigantes dentro do ban
 
 _ROTULO_TEMA_CLARO = "Claro"
 _ROTULO_TEMA_ESCURO = "Escuro"
-
-
-def _redimensionar_para_bytes_png(caminho_imagem: str) -> bytes | None:
-    """Le um arquivo de imagem do disco, redimensiona (se for maior que
-    _TAMANHO_MAX_LOGO) e devolve os bytes prontos no formato PNG, pra gravar
-    direto na coluna BLOB do banco de dados."""
-    pixmap = QPixmap(caminho_imagem)
-    if pixmap.isNull():
-        return None
-    if pixmap.width() > _TAMANHO_MAX_LOGO or pixmap.height() > _TAMANHO_MAX_LOGO:
-        pixmap = pixmap.scaled(_TAMANHO_MAX_LOGO, _TAMANHO_MAX_LOGO, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-
-    dados = QByteArray()
-    buffer = QBuffer(dados)
-    buffer.open(QIODevice.WriteOnly)
-    pixmap.save(buffer, "PNG")
-    return bytes(dados)
 
 
 class SettingsDialog(QDialog):
@@ -248,7 +232,7 @@ class SettingsDialog(QDialog):
         caminho, _ = QFileDialog.getOpenFileName(self, "Escolher logotipo", "", "Imagens (*.png *.jpg *.jpeg *.bmp)")
         if not caminho:
             return
-        dados_png = _redimensionar_para_bytes_png(caminho)
+        dados_png = redimensionar_para_bytes_png(caminho, _TAMANHO_MAX_LOGO)
         if not dados_png:
             return
         self._novo_logo_bytes = dados_png
@@ -353,7 +337,7 @@ class SettingsDialog(QDialog):
         pedacos da empresa (UF/sigla/nome) como 3 escolhas separadas aqui."""
         opcoes = [("Empresa", _SENTINELA_EMPRESA)] if "ID_EMPRESA" in colunas else []
         for coluna in colunas:
-            if coluna in ("ID", "ID_EMPRESA"):
+            if coluna in ("ID", "ID_EMPRESA", "FOTO", "FOTO_MIME"):
                 continue
             opcoes.append((field_types.rotulo_amigavel(coluna), coluna))
         return opcoes

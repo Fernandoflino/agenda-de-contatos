@@ -33,12 +33,6 @@ from versao import VERSAO
 _XLSX_REAL = os.path.join(os.path.dirname(__file__), "..", "..", "Presidentes - Mailing.xlsx")
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
-
-
 @pytest.fixture()
 def banco_com_dados(tmp_path, qapp):
     caminho = str(tmp_path / "teste.abepdb")
@@ -356,6 +350,38 @@ def test_lista_registros_view_painel_detalhe_acha_email_e_telefone(banco_com_dad
     assert view._email_atual == pessoa_com_email["EMAIL"]
 
 
+def test_lista_registros_view_aba_informacoes_nao_mostra_foto_como_texto(banco_com_dados):
+    """FOTO/FOTO_MIME sao BLOB -- ja aparecem como o avatar grande do
+    cabecalho do painel de detalhes, nao podem virar mais uma linha de
+    texto (bytes crus) na aba "Informacoes"."""
+    foto = _png_bytes_teste(banco_com_dados)
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    id_pessoa = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Com Foto", "FOTO": foto})
+
+    view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    pessoa = records.get_record(banco_com_dados, PESSOAS, id_pessoa)
+    view._mostrar_detalhe(pessoa)
+
+    rotulos = [
+        view._layout_informacoes.itemAt(0).layout().itemAtPosition(i, 0).widget().text()
+        for i in range(view._layout_informacoes.itemAt(0).layout().rowCount())
+        if view._layout_informacoes.itemAt(0).layout().itemAtPosition(i, 0) is not None
+    ]
+    assert "Foto" not in rotulos
+    assert "Foto Mime" not in rotulos
+
+
+def test_lista_registros_view_filtro_de_campo_nao_oferece_foto(banco_com_dados):
+    from db.tables import get_column_order
+
+    view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    colunas = [c for c in get_column_order(banco_com_dados, PESSOAS) if c != "ID"]
+    rotulos_e_campos = view._opcoes_de_campo(colunas)
+    campos = {campo for _, campo in rotulos_e_campos}
+    assert "FOTO" not in campos
+    assert "FOTO_MIME" not in campos
+
+
 def test_lista_registros_view_botao_copiar_copia_valor_para_area_de_transferencia(banco_com_dados):
     """O botao de copiar ao lado de um valor no painel de detalhes precisa
     copiar exatamente esse texto (ja formatado, igual aparece na tela) pra
@@ -389,6 +415,85 @@ def test_lista_registros_view_icone_anotacao_aparece_quando_tem_anotacao(banco_c
 
     assert tem_icone_nota(id_com_nota)
     assert not tem_icone_nota(id_sem_nota)
+
+
+def _png_bytes_teste(qapp) -> bytes:
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
+    from PySide6.QtGui import QPixmap
+
+    pixmap = QPixmap(20, 20)
+    pixmap.fill(Qt.red)
+    dados = QByteArray()
+    buffer = QBuffer(dados)
+    buffer.open(QIODevice.WriteOnly)
+    pixmap.save(buffer, "PNG")
+    return bytes(dados)
+
+
+def test_lista_registros_view_avatar_da_linha_e_clicavel_so_quem_tem_foto(banco_com_dados):
+    from ui.avatar import AvatarClicavel
+
+    foto = _png_bytes_teste(banco_com_dados)
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    id_com_foto = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Com Foto", "FOTO": foto})
+    id_sem_foto = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Sem Foto"})
+
+    view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    view.carregar_dados()
+
+    def tem_avatar_clicavel(id_registro):
+        linha = next(i for i, r in enumerate(view._pagina_atual_de_registros()) if r["ID"] == id_registro)
+        celula = view.tabela_widget.cellWidget(linha, 1)
+        return any(isinstance(w, AvatarClicavel) for w in celula.findChildren(AvatarClicavel))
+
+    assert tem_avatar_clicavel(id_com_foto)
+    assert not tem_avatar_clicavel(id_sem_foto)
+
+
+def test_lista_registros_view_clicar_avatar_da_linha_abre_popup_sem_mudar_detalhe(banco_com_dados, monkeypatch):
+    """Regressao/verificacao: clicar exatamente no avatar (quando tem foto)
+    tem que abrir o popup de foto, e NAO tambem disparar
+    _ao_clicar_celula/_mostrar_detalhe como o resto da celula faz (o clique
+    e consumido pelo AvatarClicavel antes de virar cellClicked da tabela)."""
+    from PySide6.QtTest import QTest
+
+    from ui.foto_popup_dialog import FotoPopupDialog
+
+    chamadas = []
+    monkeypatch.setattr(FotoPopupDialog, "exec", lambda self: chamadas.append(self.registro["ID"]))
+
+    foto = _png_bytes_teste(banco_com_dados)
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    id_pessoa = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Com Foto", "FOTO": foto})
+
+    view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    view.carregar_dados()
+    assert view._registro_detalhe is None
+
+    from ui.avatar import AvatarClicavel
+
+    linha = next(i for i, r in enumerate(view._pagina_atual_de_registros()) if r["ID"] == id_pessoa)
+    celula = view.tabela_widget.cellWidget(linha, 1)
+    avatar = next(w for w in celula.findChildren(AvatarClicavel))
+
+    QTest.mouseClick(avatar, Qt.LeftButton)
+
+    assert chamadas == [id_pessoa]
+    assert view._registro_detalhe is None  # nao mudou so por causa do clique no avatar
+
+
+def test_lista_registros_view_avatar_do_painel_de_detalhe_e_clicavel_quando_tem_foto(banco_com_dados):
+    from ui.avatar import AvatarClicavel
+
+    foto = _png_bytes_teste(banco_com_dados)
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    id_pessoa = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Com Foto", "FOTO": foto})
+
+    view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    pessoa = records.get_record(banco_com_dados, PESSOAS, id_pessoa)
+    view._mostrar_detalhe(pessoa)
+
+    assert view.painel_detalhe.findChildren(AvatarClicavel)
 
 
 def test_lista_registros_view_bulk_selecao_mostra_botao_excluir(banco_com_dados):
@@ -426,6 +531,7 @@ def test_lista_registros_view_menu_acoes_massa_tem_mudar_campos_so_para_pessoas(
     assert "Mudar empresa..." in textos_pessoas
     assert "Mudar Cargo..." in textos_pessoas
     assert "Mudar Tratamento..." in textos_pessoas
+    assert "Baixar fotos..." in textos_pessoas
     assert "Exportar selecionados..." in textos_pessoas
 
     view_empresas = ListaRegistrosView(banco_com_dados, EMPRESAS, "admin")
@@ -467,6 +573,26 @@ def test_lista_registros_view_massa_aplicar_campo_muda_empresa_e_texto(banco_com
     assert pessoa_b["CARGO"] == "Diretor Financeiro"
 
 
+def test_lista_registros_view_massa_baixar_fotos_so_dos_selecionados(banco_com_dados, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QFileDialog
+
+    foto = _png_bytes_teste(banco_com_dados)
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    id_selecionado = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Selecionado", "FOTO": foto})
+    records.create_record(
+        banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Nao Selecionado", "FOTO": _png_bytes_teste(banco_com_dados)}
+    )
+
+    view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    view._ids_selecionados = {id_selecionado}
+
+    destino = tmp_path / "saida.png"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(destino), "")))
+
+    view._acao_massa_baixar_fotos()
+    assert destino.read_bytes() == foto
+
+
 def test_lista_registros_view_anotacao_salva_e_recarrega(banco_com_dados):
     from db import anotacoes
 
@@ -503,6 +629,65 @@ def test_record_form_dialog_criar_e_editar(banco_com_dados):
     empresa = records.get_records(banco_com_dados, EMPRESAS)[0]
     dialogo_editar = RecordFormDialog(banco_com_dados, EMPRESAS, registro=empresa)
     assert dialogo_editar._widgets["SIGLA"].text() == (empresa.get("SIGLA") or "")
+
+
+def test_record_form_dialog_foto_novo_registro_comeca_sem_foto(banco_com_dados):
+    from ui.widgets import WidgetFoto
+
+    dialogo = RecordFormDialog(banco_com_dados, PESSOAS, registro=None)
+    assert isinstance(dialogo._widgets["FOTO"], WidgetFoto)
+    assert "FOTO_MIME" not in dialogo._widgets  # nunca vira campo proprio
+
+    dialogo._ao_salvar()
+    assert dialogo.resultado()["FOTO"] is None
+    assert dialogo.resultado()["FOTO_MIME"] is None
+
+
+def test_record_form_dialog_foto_editar_registro_com_foto_preserva_ao_salvar(banco_com_dados):
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
+    from PySide6.QtGui import QPixmap
+
+    pixmap = QPixmap(20, 20)
+    pixmap.fill(Qt.red)
+    dados = QByteArray()
+    buffer = QBuffer(dados)
+    buffer.open(QIODevice.WriteOnly)
+    pixmap.save(buffer, "PNG")
+    foto = bytes(dados)
+
+    id_pessoa = records.create_record(banco_com_dados, PESSOAS, {"NOME": "Fulano", "FOTO": foto})
+    pessoa = records.get_record(banco_com_dados, PESSOAS, id_pessoa)
+
+    dialogo = RecordFormDialog(banco_com_dados, PESSOAS, registro=pessoa)
+    widget_foto = dialogo._widgets["FOTO"]
+    assert widget_foto.foto_bytes() == foto
+
+    dialogo._ao_salvar()
+    assert dialogo.resultado()["FOTO"] == foto
+    assert dialogo.resultado()["FOTO_MIME"] == "image/png"
+
+
+def test_record_form_dialog_foto_remover_limpa_ao_salvar(banco_com_dados):
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
+    from PySide6.QtGui import QPixmap
+
+    pixmap = QPixmap(20, 20)
+    pixmap.fill(Qt.red)
+    dados = QByteArray()
+    buffer = QBuffer(dados)
+    buffer.open(QIODevice.WriteOnly)
+    pixmap.save(buffer, "PNG")
+    foto = bytes(dados)
+
+    id_pessoa = records.create_record(banco_com_dados, PESSOAS, {"NOME": "Fulano", "FOTO": foto})
+    pessoa = records.get_record(banco_com_dados, PESSOAS, id_pessoa)
+
+    dialogo = RecordFormDialog(banco_com_dados, PESSOAS, registro=pessoa)
+    dialogo._widgets["FOTO"]._remover_foto()
+    dialogo._ao_salvar()
+
+    assert dialogo.resultado()["FOTO"] is None
+    assert dialogo.resultado()["FOTO_MIME"] is None
 
 
 def test_record_form_dialog_categorias_respeita_ordem_configurada_das_colunas(qapp, conn):
@@ -712,6 +897,58 @@ def test_export_dialog_constroi(banco_com_dados):
     assert dialogo.combo_tabela.count() > 0
 
 
+def test_export_dialog_secao_fotos_so_aparece_para_pessoas(banco_com_dados):
+    dialogo = ExportDialog(banco_com_dados, tabela_padrao=PESSOAS)
+    assert not dialogo.grupo_fotos.isHidden()
+
+    dialogo.combo_tabela.setCurrentText(EMPRESAS)
+    assert dialogo.grupo_fotos.isHidden()
+
+    dialogo.combo_tabela.setCurrentText(PESSOAS)
+    assert not dialogo.grupo_fotos.isHidden()
+
+
+def test_export_dialog_baixar_fotos_todas(banco_com_dados, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QFileDialog
+
+    foto = _png_bytes_teste(banco_com_dados)
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Fulano", "FOTO": foto})
+
+    dialogo = ExportDialog(banco_com_dados, tabela_padrao=PESSOAS)
+    destino = tmp_path / "saida.png"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(destino), "")))
+
+    dialogo._baixar_fotos()
+    assert destino.read_bytes() == foto
+
+
+def test_export_dialog_baixar_fotos_por_categoria(banco_com_dados, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QFileDialog
+
+    categorias.adicionar_categoria(banco_com_dados, "Presidentes")
+    categorias.adicionar_categoria(banco_com_dados, "Diretores Técnicos")
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    id_presidente = records.create_record(
+        banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Presidente", "FOTO": _png_bytes_teste(banco_com_dados)}
+    )
+    id_diretor = records.create_record(
+        banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Diretor", "FOTO": _png_bytes_teste(banco_com_dados)}
+    )
+    categorias.definir_categorias_da_pessoa(banco_com_dados, id_presidente, ["Presidentes"])
+    categorias.definir_categorias_da_pessoa(banco_com_dados, id_diretor, ["Diretores Técnicos"])
+
+    dialogo = ExportDialog(banco_com_dados, tabela_padrao=PESSOAS)
+    dialogo.combo_categoria_fotos.setCurrentText("Presidentes")
+
+    destino = tmp_path / "saida.png"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(destino), "")))
+    dialogo._baixar_fotos()
+
+    presidente = records.get_record(banco_com_dados, PESSOAS, id_presidente)
+    assert destino.read_bytes() == presidente["FOTO"]  # so o presidente, nao o diretor
+
+
 def test_export_dialog_com_ids_selecionados_trava_tabela(banco_com_dados):
     """Quando aberto a partir de "Exportar selecionados" (acao em massa),
     a escolha de tabela fica travada -- os IDs marcados so fazem sentido
@@ -817,6 +1054,16 @@ def test_settings_dialog_campo_extra_carrega_sugestao_padrao(banco_com_dados):
     assert dialogo.lista_campos_escolhidos.item(0).text() == "Empresa"
 
 
+def test_settings_dialog_campo_extra_nao_oferece_foto(banco_com_dados):
+    dialogo = SettingsDialog(banco_com_dados, "admin")
+    dialogo.combo_tabela_resumo.setCurrentText(PESSOAS)
+
+    disponiveis = set(_dados_lista(dialogo.lista_campos_disponiveis))
+    escolhidos = set(_dados_lista(dialogo.lista_campos_escolhidos))
+    assert "FOTO" not in disponiveis | escolhidos
+    assert "FOTO_MIME" not in disponiveis | escolhidos
+
+
 def _esvaziar_escolhidos(dialogo) -> None:
     """Move todo mundo de volta pra "disponiveis", deixando "escolhidos"
     vazia -- pra montar do zero um cenario determinístico no teste."""
@@ -904,6 +1151,36 @@ def test_dashboard_view_recarregar_atualiza_apos_novo_contato(banco_com_dados):
     primeiro_cartao = view._linha_cartoes.itemAt(0).widget()
     textos = [lbl.text() for lbl in primeiro_cartao.findChildren(QLabel)]
     assert str(total_antes + 1) in textos
+
+
+def test_dashboard_view_filtro_de_campo_nao_oferece_foto(banco_com_dados):
+    view = DashboardView(banco_com_dados)
+    campos = {campo for _, campo in view._opcoes_de_campo_painel()}
+    assert "FOTO" not in campos
+    assert "FOTO_MIME" not in campos
+
+
+def test_dashboard_view_aniversariante_com_foto_mostra_avatar_com_foto(banco_com_dados):
+    from PySide6.QtWidgets import QLabel
+
+    from ui.avatar import AvatarClicavel
+
+    foto = _png_bytes_teste(banco_com_dados)
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    records.create_record(
+        banco_com_dados, PESSOAS,
+        {"ID_EMPRESA": id_empresa, "NOME": "Com Foto", "DATA DE NASCIMENTO": "1990-01-01", "FOTO": foto},
+    )
+
+    view = DashboardView(banco_com_dados)
+    # sem clicavel=True no Dashboard (nao foi pedido popup aqui) -- e so um
+    # QLabel comum com a foto, nunca um AvatarClicavel.
+    assert not view._grupo_aniversarios.findChildren(AvatarClicavel)
+    avatares_com_foto = [
+        w for w in view._grupo_aniversarios.findChildren(QLabel)
+        if w.objectName() != "AvatarIniciais" and not w.pixmap().isNull()
+    ]
+    assert avatares_com_foto
 
 
 def test_dashboard_view_filtro_so_afeta_lista_de_aniversariantes(banco_com_dados):

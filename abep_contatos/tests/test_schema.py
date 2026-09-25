@@ -101,6 +101,16 @@ def test_migracao_vincula_pessoas_as_categorias_ignorando_diferenca_de_caixa():
     conn.close()
 
 
+def test_migracao_cria_colunas_de_foto():
+    conn = _banco_antigo()
+    schema.migrar_schema_se_necessario(conn)
+    schema.migrar_schema_se_necessario(conn)  # roda 2x: nao pode dar erro de "coluna ja existe"
+    colunas = {row[1] for row in conn.execute('PRAGMA table_info("PESSOAS")')}
+    assert "FOTO" in colunas
+    assert "FOTO_MIME" in colunas
+    conn.close()
+
+
 def test_migracao_cria_tabelas_da_lixeira():
     conn = _banco_antigo()
     schema.migrar_schema_se_necessario(conn)

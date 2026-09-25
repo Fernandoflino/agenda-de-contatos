@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QFileDialog,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -36,8 +37,11 @@ from PySide6.QtWidgets import (
 from db import categorias, exporter, records
 from db.schema import PESSOAS
 from db.tables import list_data_sheets
+from ui import imagens
 from ui.dialogs import mostrar_erro, mostrar_info
 from ui.window_utils import preparar_janela
+
+_CATEGORIA_TODAS = "(todas)"
 
 
 def _lista_marcavel(itens: list[str], marcados: set[str] | None = None) -> QListWidget:
@@ -92,6 +96,7 @@ class ExportDialog(QDialog):
         linha_tabela.addWidget(QLabel("Tabela:"))
         linha_tabela.addWidget(self.combo_tabela, stretch=1)
         layout.addLayout(linha_tabela)
+        layout.addWidget(self._criar_secao_fotos())
         layout.addWidget(self.abas, stretch=1)
 
         botoes = QHBoxLayout()
@@ -106,6 +111,45 @@ class ExportDialog(QDialog):
         layout.addLayout(botoes)
 
         self._recarregar_colunas_simples(self.combo_tabela.currentText())
+
+    # -- fotos (so PESSOAS) -----------------------------------------------
+
+    def _criar_secao_fotos(self) -> QWidget:
+        self.grupo_fotos = QGroupBox("Fotos")
+        layout = QHBoxLayout(self.grupo_fotos)
+        layout.setSpacing(8)
+
+        layout.addWidget(QLabel("Categoria:"))
+        self.combo_categoria_fotos = QComboBox()
+        layout.addWidget(self.combo_categoria_fotos, stretch=1)
+
+        botao_baixar_fotos = QPushButton("Baixar fotos...")
+        botao_baixar_fotos.clicked.connect(self._baixar_fotos)
+        layout.addWidget(botao_baixar_fotos)
+
+        self.grupo_fotos.setVisible(False)
+        return self.grupo_fotos
+
+    def _recarregar_secao_fotos(self, tabela: str) -> None:
+        eh_pessoas = tabela == PESSOAS
+        self.grupo_fotos.setVisible(eh_pessoas)
+        if not eh_pessoas:
+            return
+        atual = self.combo_categoria_fotos.currentText()
+        self.combo_categoria_fotos.blockSignals(True)
+        self.combo_categoria_fotos.clear()
+        self.combo_categoria_fotos.addItem(_CATEGORIA_TODAS)
+        self.combo_categoria_fotos.addItems(categorias.listar_categorias(self.conn))
+        indice = self.combo_categoria_fotos.findText(atual)
+        self.combo_categoria_fotos.setCurrentIndex(indice if indice >= 0 else 0)
+        self.combo_categoria_fotos.blockSignals(False)
+
+    def _baixar_fotos(self) -> None:
+        categoria = self.combo_categoria_fotos.currentText()
+        registros = records.get_records(self.conn, PESSOAS)
+        if categoria and categoria != _CATEGORIA_TODAS:
+            registros = [r for r in registros if categoria in (r.get("CATEGORIAS") or [])]
+        imagens.salvar_fotos_via_dialogo(self, registros)
 
     # -- aba "Simples" -------------------------------------------------
 
@@ -131,6 +175,7 @@ class ExportDialog(QDialog):
     def _recarregar_colunas_simples(self, tabela: str) -> None:
         if not tabela:
             return
+        self._recarregar_secao_fotos(tabela)
         colunas, _ = exporter.colunas_exportaveis(self.conn, tabela)
         self.lista_colunas_simples.clear()
         for texto in colunas:

@@ -201,7 +201,9 @@ CREATE TABLE "{PESSOAS}" (
     "ASSESSOR(A)" TEXT,
     "WHATSAPP ASSESSOR" TEXT,
     "CP1" TEXT, "CP2" TEXT, "CP3" TEXT, "CP4" TEXT, "CP5" TEXT,
-    "CP6" TEXT, "CP7" TEXT, "CP8" TEXT, "CP9" TEXT
+    "CP6" TEXT, "CP7" TEXT, "CP8" TEXT, "CP9" TEXT,
+    "FOTO" BLOB,
+    "FOTO_MIME" TEXT
 );
 """
 
@@ -471,6 +473,16 @@ def migrar_schema_se_necessario(conn) -> None:
                     f'INSERT OR IGNORE INTO {APP_PESSOAS_CATEGORIAS} ("PESSOA_ID", "CATEGORIA_ID") VALUES (?, ?)',
                     vinculos,
                 )
+
+    if PESSOAS in tabelas_existentes:
+        colunas_pessoas_atuais = {row[1] for row in conn.execute(f'PRAGMA table_info("{PESSOAS}")')}
+        if "FOTO" not in colunas_pessoas_atuais:
+            # Bancos criados antes de existir foto de contato -- adiciona as
+            # 2 colunas faltantes (comecam vazias pra todo mundo, estado
+            # normal; ninguem tinha foto cadastrada antes dessa versao).
+            conn.execute(f'ALTER TABLE "{PESSOAS}" ADD COLUMN "FOTO" BLOB')
+            conn.execute(f'ALTER TABLE "{PESSOAS}" ADD COLUMN "FOTO_MIME" TEXT')
+            mudou = True
 
     if APP_LIXEIRA_REGISTROS not in tabelas_existentes:
         # Bancos criados antes de existir a Lixeira -- so cria as 3 tabelas

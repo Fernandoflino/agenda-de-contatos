@@ -11,15 +11,24 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QFileDialog,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMenu,
+    QPushButton,
     QToolButton,
+    QVBoxLayout,
     QWidget,
     QWidgetAction,
 )
+
+from ui.avatar import criar_avatar
+from ui.imagens import redimensionar_para_bytes_png
+
+_TAMANHO_MAX_FOTO = 512  # pixels -- um pouco maior que o logo (256): a foto e vista ampliada no popup
 
 
 class CampoSenha(QWidget):
@@ -181,3 +190,69 @@ class FiltroMultiplaEscolha(QToolButton):
             self.setText(f"{self._rotulo_base} (1)")
         else:
             self.setText(f"{self._rotulo_base} ({quantidade})")
+
+
+class WidgetFoto(QWidget):
+    """Campo de upload de foto no formulario de contato: preview circular
+    (a foto atual, ou o avatar de iniciais de sempre enquanto nao tem foto)
+    + botoes "Escolher imagem..." e "Remover foto". Mesmo padrao ja usado
+    pro logotipo do painel (ui/settings_dialog.py), so que reutilizavel."""
+
+    _TAMANHO_PREVIEW = 72
+
+    def __init__(self, nome_pessoa: str, foto_atual: bytes | None, parent=None):
+        super().__init__(parent)
+        self._nome_pessoa = nome_pessoa
+        self._foto_bytes: bytes | None = foto_atual
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        self._rotulo_preview = QLabel()
+        layout.addWidget(self._rotulo_preview)
+
+        botoes = QVBoxLayout()
+        botoes.setSpacing(4)
+        botao_escolher = QPushButton("Escolher imagem...")
+        botao_escolher.clicked.connect(self._escolher_imagem)
+        botoes.addWidget(botao_escolher)
+        self._botao_remover = QPushButton("Remover foto")
+        self._botao_remover.clicked.connect(self._remover_foto)
+        botoes.addWidget(self._botao_remover)
+        layout.addLayout(botoes)
+        layout.addStretch()
+
+        self._atualizar_preview()
+
+    def _atualizar_preview(self) -> None:
+        # criar_avatar() ja resolve foto-de-verdade vs. iniciais -- pra nao
+        # duplicar essa logica aqui, so "capturamos" o widget pronto
+        # (funciona igual pros dois casos: pixmap de foto, ou o QSS colorido
+        # das iniciais) e usamos como preview.
+        avatar = criar_avatar(self._nome_pessoa, tamanho=self._TAMANHO_PREVIEW, foto_bytes=self._foto_bytes)
+        self._rotulo_preview.setFixedSize(self._TAMANHO_PREVIEW, self._TAMANHO_PREVIEW)
+        self._rotulo_preview.setPixmap(avatar.grab())
+        self._botao_remover.setEnabled(bool(self._foto_bytes))
+
+    def _escolher_imagem(self) -> None:
+        caminho, _ = QFileDialog.getOpenFileName(
+            self, "Escolher foto", "", "Imagens (*.png *.jpg *.jpeg *.bmp)"
+        )
+        if not caminho:
+            return
+        dados_png = redimensionar_para_bytes_png(caminho, _TAMANHO_MAX_FOTO)
+        if not dados_png:
+            return
+        self._foto_bytes = dados_png
+        self._atualizar_preview()
+
+    def _remover_foto(self) -> None:
+        self._foto_bytes = None
+        self._atualizar_preview()
+
+    def foto_bytes(self) -> bytes | None:
+        return self._foto_bytes
+
+    def foto_mime(self) -> str | None:
+        return "image/png" if self._foto_bytes else None

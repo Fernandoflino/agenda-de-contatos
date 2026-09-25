@@ -109,7 +109,7 @@ def _celula_nome_aniversario(pessoa) -> QWidget:
     layout = QHBoxLayout(container)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(8)
-    layout.addWidget(criar_avatar(pessoa.nome, tamanho=26))
+    layout.addWidget(criar_avatar(pessoa.nome, tamanho=26, foto_bytes=pessoa.foto))
     layout.addWidget(QLabel(texto_nome), stretch=1)
     return container
 
@@ -215,6 +215,8 @@ class DashboardView(QWidget):
         colunas = [c for c in get_column_order(self.conn, PESSOAS) if c != "ID"]
         opcoes = []
         for coluna in colunas:
+            if coluna in ("FOTO", "FOTO_MIME"):
+                continue  # nao faz sentido "filtrar por foto" digitando texto
             if coluna == "ID_EMPRESA":
                 opcoes.append(("Empresa", "_EMPRESA_BUSCA"))
             else:

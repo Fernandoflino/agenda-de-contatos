@@ -78,6 +78,10 @@ def colunas_exportaveis(conn: sqlite3.Connection, tabela: str) -> tuple[list[str
                         disponiveis.append(nome_coluna)
                         mapa_fonte[nome_coluna] = campo_fonte
             continue
+        if coluna in ("FOTO", "FOTO_MIME"):
+            # Foto e um BLOB -- nao faz sentido nenhum numa celula de
+            # planilha (viraria bytes crus ou quebraria o arquivo gerado).
+            continue
         disponiveis.append(coluna)
     return disponiveis, mapa_fonte
 

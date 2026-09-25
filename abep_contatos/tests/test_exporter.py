@@ -36,6 +36,14 @@ def test_exportacao_simples_restringe_por_ids_permitidos(conn):
     assert {r["NOME"] for r in rows} == {todos[0]["NOME"], todos[2]["NOME"]}
 
 
+def test_colunas_exportaveis_nao_inclui_foto(conn):
+    """FOTO/FOTO_MIME sao BLOB -- nao fazem sentido numa celula de
+    planilha, entao nunca aparecem como coluna exportavel."""
+    colunas, _ = exporter.colunas_exportaveis(conn, "PESSOAS")
+    assert "FOTO" not in colunas
+    assert "FOTO_MIME" not in colunas
+
+
 def test_exportacao_simples_mostra_empresa_em_vez_de_id(conn):
     _preparar(conn)
     columns, rows = exporter.montar_exportacao_simples(conn, "PESSOAS")
