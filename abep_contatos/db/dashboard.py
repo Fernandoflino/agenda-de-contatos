@@ -67,15 +67,22 @@ def _proximo_aniversario(data_nascimento_iso: str, hoje: date) -> tuple[int, int
     return dias_ate, idade_ao_completar
 
 
-def proximos_aniversarios(conn: sqlite3.Connection, limite: int = 8, hoje: date | None = None) -> list[Aniversariante]:
+def proximos_aniversarios(
+    conn: sqlite3.Connection, limite: int = 8, hoje: date | None = None, registros: list[dict] | None = None
+) -> list[Aniversariante]:
     """Os proximos aniversariantes, do mais perto pro mais distante --
     ignora silenciosamente quem nao tem uma data de nascimento valida
     cadastrada. `hoje` so existe como parametro pra facilitar testar (no uso
-    normal do programa, e sempre a data de hoje de verdade)."""
+    normal do programa, e sempre a data de hoje de verdade).
+
+    `registros`, quando informado, usa essa lista JA FILTRADA em vez de
+    buscar todos os PESSOAS do banco -- usado pelo filtro do Painel (ver
+    ui/dashboard_view.py), que so filtra a lista de aniversariantes, nao os
+    cartoes de numero."""
     hoje = hoje or date.today()
 
     encontrados = []
-    for pessoa in records.get_records(conn, PESSOAS):
+    for pessoa in (registros if registros is not None else records.get_records(conn, PESSOAS)):
         resultado = _proximo_aniversario(str(pessoa.get("DATA DE NASCIMENTO") or ""), hoje)
         if resultado is None:
             continue

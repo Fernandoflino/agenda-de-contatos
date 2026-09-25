@@ -25,6 +25,9 @@ _SVGS = {
     "email": f'<svg viewBox="0 0 24 24" {_TRACO}><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>',
     "telefone": f'<svg viewBox="0 0 24 24" {_TRACO}><path d="M6.5 3.5h3l1.5 4-2 1.5a10 10 0 0 0 5.5 5.5l1.5-2 4 1.5v3a1.5 1.5 0 0 1-1.6 1.5A15.5 15.5 0 0 1 5 6.1 1.5 1.5 0 0 1 6.5 3.5z"/></svg>',
     "fechar": f'<svg viewBox="0 0 24 24" fill="none" stroke="{{cor}}" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg>',
+    "menu": f'<svg viewBox="0 0 24 24" fill="{{cor}}"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>',
+    "nota": f'<svg viewBox="0 0 24 24" {_TRACO}><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg>',
+    "copiar": f'<svg viewBox="0 0 24 24" {_TRACO}><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>',
 }
 
 _cache: dict[tuple[str, str, int], QIcon] = {}

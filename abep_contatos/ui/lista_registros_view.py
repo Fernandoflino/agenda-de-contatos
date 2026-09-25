@@ -27,8 +27,11 @@ import sqlite3
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -45,6 +48,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QTextEdit,
     QToolButton,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -55,12 +59,36 @@ from db.tables import get_column_order
 from ui import field_types, icons
 from ui.avatar import criar_avatar as _criar_avatar
 from ui.dialogs import confirmar_exclusao, mostrar_erro, mostrar_info
+from ui.export_dialog import ExportDialog
 from ui.record_form_dialog import RecordFormDialog
 from ui.theme import cor_texto_mutado, marcar_variante
+from ui.widgets import FiltroMultiplaEscolha, SelecaoMultiplaLista
 from ui.window_utils import limpar_layout
 
 _ITENS_POR_PAGINA_PADRAO = 20
 _OPCOES_ITENS_POR_PAGINA = (10, 20, 50, 100)
+
+
+class _DialogoValorMassa(QDialog):
+    """Popup pequeno e generico: mostra UM widget (o jeito de escolher o
+    valor novo) + botoes OK/Cancelar -- usado por toda acao em massa que
+    pede "qual valor aplicar em todos os selecionados" (ver
+    ListaRegistrosView._acao_massa_*), pra nao repetir esse esqueleto em
+    cada uma."""
+
+    def __init__(self, titulo: str, widget_valor: QWidget, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(titulo)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+        layout.addWidget(widget_valor)
+
+        botoes = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        marcar_variante(botoes.button(QDialogButtonBox.Cancel), "secundario")
+        botoes.accepted.connect(self.accept)
+        botoes.rejected.connect(self.reject)
+        layout.addWidget(botoes)
 
 
 class ListaRegistrosView(QWidget):
@@ -159,6 +187,14 @@ class ListaRegistrosView(QWidget):
         self.campo_busca.addAction(icons.icone("busca", cor_icone), QLineEdit.LeadingPosition)
         self.campo_busca.textChanged.connect(self._ao_mudar_filtro)
         linha.addWidget(self.campo_busca, stretch=1)
+
+        self.botao_acoes_massa = QToolButton()
+        self.botao_acoes_massa.setText("Ações em massa")
+        self.botao_acoes_massa.setPopupMode(QToolButton.InstantPopup)
+        marcar_variante(self.botao_acoes_massa, "secundario")
+        self.botao_acoes_massa.setMenu(self._montar_menu_acoes_massa())
+        self.botao_acoes_massa.hide()
+        linha.addWidget(self.botao_acoes_massa)
 
         self.botao_excluir_selecionados = QPushButton("Excluir selecionados")
         marcar_variante(self.botao_excluir_selecionados, "perigo")
@@ -273,9 +309,12 @@ class ListaRegistrosView(QWidget):
             self._popular_valor_combo_empresa(widget)
             widget.currentIndexChanged.connect(self._ao_mudar_filtro)
         elif campo == "CATEGORIA" and self.tabela == PESSOAS:
-            widget = QComboBox()
-            self._popular_valor_combo_categoria(widget)
-            widget.currentIndexChanged.connect(self._ao_mudar_filtro)
+            # Multipla escolha: o registro aparece se tiver QUALQUER UMA das
+            # categorias marcadas (ver _aplicar_filtro) -- pra filtrar por
+            # uma intersecao mais estrita, basta adicionar outra linha de
+            # filtro "Categoria" (linhas se combinam com "E" entre si).
+            widget = FiltroMultiplaEscolha("Categoria", categorias.listar_categorias(self.conn))
+            widget.mudou.connect(self._ao_mudar_filtro)
         else:
             widget = QLineEdit()
             widget.setPlaceholderText("valor do filtro...")
@@ -304,17 +343,6 @@ class ListaRegistrosView(QWidget):
         combo.setCurrentIndex(indice if indice >= 0 else 0)
         combo.blockSignals(False)
 
-    def _popular_valor_combo_categoria(self, combo: QComboBox) -> None:
-        atual = combo.currentData()
-        combo.blockSignals(True)
-        combo.clear()
-        combo.addItem("(todas)", None)
-        for nome in categorias.listar_categorias(self.conn):
-            combo.addItem(nome, nome)
-        indice = combo.findData(atual) if atual else -1
-        combo.setCurrentIndex(indice if indice >= 0 else 0)
-        combo.blockSignals(False)
-
     def _atualizar_combo_campo_linha(self, linha: QWidget, opcoes: list[tuple[str, str]]) -> None:
         """Reconstroi as OPCOES de campo de uma linha (o esquema pode ter
         mudado -- um campo pode ter sido renomeado/removido pela tela de
@@ -337,8 +365,8 @@ class ListaRegistrosView(QWidget):
         campo = linha.combo_campo.currentData()
         if campo == "_EMPRESA_BUSCA" and isinstance(linha.widget_valor, QComboBox):
             self._popular_valor_combo_empresa(linha.widget_valor)
-        elif campo == "CATEGORIA" and self.tabela == PESSOAS and isinstance(linha.widget_valor, QComboBox):
-            self._popular_valor_combo_categoria(linha.widget_valor)
+        elif campo == "CATEGORIA" and self.tabela == PESSOAS and isinstance(linha.widget_valor, FiltroMultiplaEscolha):
+            linha.widget_valor.redefinir_opcoes(categorias.listar_categorias(self.conn))
 
     # -- preferencias do usuario (filtros salvos, largura do painel) --------
 
@@ -378,7 +406,7 @@ class ListaRegistrosView(QWidget):
             # Ignora silenciosamente um filtro salvo que nao faz mais sentido
             # (ex.: o campo foi removido em "Tabelas e campos" desde a ultima
             # vez) -- em vez de dar erro, a tela so abre sem essa linha.
-            if campo not in campos_validos or valor in (None, ""):
+            if campo not in campos_validos or not valor:
                 continue
 
             self._adicionar_linha_filtro()
@@ -391,7 +419,9 @@ class ListaRegistrosView(QWidget):
             linha.combo_campo.blockSignals(False)
             self._construir_widget_valor(linha)
 
-            if isinstance(linha.widget_valor, QComboBox):
+            if isinstance(linha.widget_valor, FiltroMultiplaEscolha):
+                linha.widget_valor.marcar(valor if isinstance(valor, list) else [valor])
+            elif isinstance(linha.widget_valor, QComboBox):
                 indice_valor = linha.widget_valor.findData(valor)
                 if indice_valor >= 0:
                     linha.widget_valor.setCurrentIndex(indice_valor)
@@ -408,8 +438,13 @@ class ListaRegistrosView(QWidget):
             campo = linha.combo_campo.currentData()
             if not campo:
                 continue
-            valor = linha.widget_valor.currentData() if isinstance(linha.widget_valor, QComboBox) else linha.widget_valor.text()
-            if valor in (None, ""):
+            if isinstance(linha.widget_valor, FiltroMultiplaEscolha):
+                valor = linha.widget_valor.selecionados()
+            elif isinstance(linha.widget_valor, QComboBox):
+                valor = linha.widget_valor.currentData()
+            else:
+                valor = linha.widget_valor.text()
+            if not valor:
                 continue
             filtros.append({"campo": campo, "valor": valor})
 
@@ -723,15 +758,15 @@ class ListaRegistrosView(QWidget):
                 if id_empresa_filtro is not None:
                     filtrados = [r for r in filtrados if r.get("ID_EMPRESA") == id_empresa_filtro]
             elif campo == "CATEGORIA" and self.tabela == PESSOAS:
-                # Um contato pode ter varias categorias ao mesmo tempo --
-                # aparece se tiver a categoria escolhida ENTRE as suas (nao
-                # precisa ser a unica). Pra filtrar por mais de uma categoria
-                # de uma vez, basta adicionar mais uma linha de filtro
-                # "Categoria" (as linhas se combinam com "E" entre si, como
-                # qualquer outro filtro desta tela).
-                categoria_filtro = linha.widget_valor.currentData()
-                if categoria_filtro is not None:
-                    filtrados = [r for r in filtrados if categoria_filtro in (r.get("CATEGORIAS") or [])]
+                # Um contato pode ter varias categorias ao mesmo tempo, e o
+                # filtro tambem aceita marcar mais de uma categoria de uma
+                # vez -- aparece se tiver QUALQUER UMA das marcadas (uniao,
+                # nao intersecao). Pra exigir varias categorias ao mesmo
+                # tempo, basta adicionar mais uma linha de filtro
+                # "Categoria" (linhas se combinam com "E" entre si).
+                categorias_filtro = set(linha.widget_valor.selecionados())
+                if categorias_filtro:
+                    filtrados = [r for r in filtrados if categorias_filtro & set(r.get("CATEGORIAS") or [])]
             else:
                 texto = linha.widget_valor.text()
                 if texto:
@@ -855,6 +890,13 @@ class ListaRegistrosView(QWidget):
         pagina = self._pagina_atual_de_registros()
         self.tabela_widget.setRowCount(len(pagina))
 
+        # Uma unica consulta pra pagina inteira (nao uma por linha) --
+        # descobre quais desses registros tem anotacao, pra desenhar o
+        # iconezinho de nota ao lado do nome.
+        ids_com_anotacao = anotacoes.ids_com_anotacao(
+            self.conn, self.tabela, [r["ID"] for r in pagina if r.get("ID") is not None]
+        )
+
         for linha, registro in enumerate(pagina):
             id_registro = registro.get("ID")
 
@@ -874,6 +916,11 @@ class ListaRegistrosView(QWidget):
             layout_titulo.setContentsMargins(6, 4, 6, 4)
             layout_titulo.setSpacing(8)
             layout_titulo.addWidget(_criar_avatar(titulo_valor, tamanho=30))
+            if id_registro in ids_com_anotacao:
+                rotulo_nota = QLabel()
+                rotulo_nota.setPixmap(icons.icone("nota", cor_texto_mutado(self.conn)).pixmap(14, 14))
+                rotulo_nota.setToolTip("Este registro tem uma anotação")
+                layout_titulo.addWidget(rotulo_nota)
             rotulo_titulo_celula = QLabel(titulo_valor)
             rotulo_titulo_celula.setWordWrap(False)
             layout_titulo.addWidget(rotulo_titulo_celula, stretch=1)
@@ -890,10 +937,12 @@ class ListaRegistrosView(QWidget):
                 self.tabela_widget.setItem(linha, 2 + indice_extra, item)
 
             botao_acoes = QToolButton()
-            botao_acoes.setText("⋮")
+            # Usa o SVG "menu" (3 pontinhos) em vez do caractere "⋮" -- esse
+            # glifo de texto sai fraco/quase invisivel em varias fontes,
+            # principalmente no tema escuro (bug relatado pelo usuario).
+            botao_acoes.setIcon(icons.icone("menu", cor_texto_mutado(self.conn)))
             botao_acoes.setPopupMode(QToolButton.InstantPopup)
-            marcar_variante(botao_acoes, "secundario")
-            # O "⋮" ja deixa claro que abre um menu -- sem isso, o Qt
+            # O icone ja deixa claro que abre um menu -- sem isso, o Qt
             # desenha TAMBEM uma setinha de dropdown ao lado, apertada
             # demais pra caber bem numa coluna de 44px.
             botao_acoes.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0; }")
@@ -996,6 +1045,8 @@ class ListaRegistrosView(QWidget):
         quantidade = len(self._ids_selecionados)
         self.botao_excluir_selecionados.setText(f"Excluir selecionados ({quantidade})")
         self.botao_excluir_selecionados.setVisible(quantidade > 0)
+        self.botao_acoes_massa.setText(f"Ações em massa ({quantidade})" if quantidade else "Ações em massa")
+        self.botao_acoes_massa.setVisible(quantidade > 0)
 
     # -- painel de detalhes ----------------------------------------------------
 
@@ -1083,6 +1134,39 @@ class ListaRegistrosView(QWidget):
         texto.setWordWrap(True)
         texto.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(texto, stretch=1)
+        layout.addWidget(self._botao_copiar(valor), alignment=Qt.AlignTop)
+        return container
+
+    def _botao_copiar(self, valor: str) -> QToolButton:
+        """Botaozinho que copia `valor` (o mesmo texto ja formatado que
+        aparece na tela) pra area de transferencia, com um tooltip rapido
+        de confirmacao -- usado em qualquer campo do painel de detalhes."""
+        botao = QToolButton()
+        botao.setIcon(icons.icone("copiar", cor_texto_mutado(self.conn), tamanho=14))
+        botao.setToolTip("Copiar")
+        botao.setAutoRaise(True)
+        botao.setCursor(Qt.PointingHandCursor)
+        botao.clicked.connect(lambda: self._copiar_valor(botao, valor))
+        return botao
+
+    def _copiar_valor(self, botao: QToolButton, valor: str) -> None:
+        QApplication.clipboard().setText(valor)
+        QToolTip.showText(botao.mapToGlobal(botao.rect().bottomLeft()), "Copiado!", botao)
+
+    def _celula_valor_com_copiar(self, texto: str) -> QWidget:
+        """Valor de um campo (na aba "Informacoes") + botao de copiar do
+        lado -- reaproveitado tanto pros campos normais quanto pra linha
+        extra de "Empresa"."""
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        rotulo_valor = QLabel(texto)
+        rotulo_valor.setWordWrap(True)
+        rotulo_valor.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(rotulo_valor, stretch=1)
+        layout.addWidget(self._botao_copiar(texto), alignment=Qt.AlignTop)
         return container
 
     def _popular_aba_informacoes(self, registro: dict, colunas: list[str]) -> None:
@@ -1098,19 +1182,14 @@ class ListaRegistrosView(QWidget):
             rotulo = QLabel(field_types.rotulo_amigavel(campo))
             rotulo.setProperty("papel", "subtitulo")
             grade.addWidget(rotulo, linha, 0)
-            valor_label = QLabel(self._valor_exibicao(registro, campo))
-            valor_label.setWordWrap(True)
-            valor_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            grade.addWidget(valor_label, linha, 1)
+            grade.addWidget(self._celula_valor_com_copiar(self._valor_exibicao(registro, campo)), linha, 1)
             linha += 1
 
         if registro.get("_EMPRESA_NOME"):
             rotulo = QLabel("Empresa")
             rotulo.setProperty("papel", "subtitulo")
             grade.addWidget(rotulo, linha, 0)
-            valor_empresa = QLabel(str(registro["_EMPRESA_NOME"]))
-            valor_empresa.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            grade.addWidget(valor_empresa, linha, 1)
+            grade.addWidget(self._celula_valor_com_copiar(str(registro["_EMPRESA_NOME"])), linha, 1)
 
         grade.setColumnStretch(1, 1)
         self._layout_informacoes.addLayout(grade)
@@ -1206,3 +1285,75 @@ class ListaRegistrosView(QWidget):
                 pass
         self._ids_selecionados.clear()
         self.carregar_dados()
+
+    # -- acoes em massa -------------------------------------------------------
+
+    def _montar_menu_acoes_massa(self) -> QMenu:
+        menu = QMenu(self)
+        if self.tabela == PESSOAS:
+            menu.addAction("Mudar categoria...", self._acao_massa_mudar_categoria)
+            menu.addAction("Mudar empresa...", self._acao_massa_mudar_empresa)
+            menu.addAction("Mudar Cargo...", lambda: self._acao_massa_mudar_campo_texto("CARGO", "Cargo"))
+            menu.addAction("Mudar Tratamento...", lambda: self._acao_massa_mudar_campo_texto("TRATAMENTO", "Tratamento"))
+            menu.addSeparator()
+        menu.addAction("Exportar selecionados...", self._acao_massa_exportar_selecionados)
+        return menu
+
+    def _aplicar_em_selecionados(self, aplicar) -> None:
+        """Roda `aplicar(id_registro)` pra cada registro marcado, recarrega
+        a tela no final -- base comum de toda acao em massa que EDITA (nao
+        exclui) os registros selecionados. Separado dos metodos `_acao_massa_*`
+        (que soo o popup) pra dar pra testar a logica de aplicar sem precisar
+        simular clique num QDialog modal."""
+        if not self._ids_selecionados:
+            return
+        for id_registro in list(self._ids_selecionados):
+            aplicar(id_registro)
+        self.carregar_dados()
+
+    def _massa_aplicar_categoria(self, novas_categorias: list[str]) -> None:
+        self._aplicar_em_selecionados(
+            lambda id_registro: categorias.definir_categorias_da_pessoa(self.conn, id_registro, novas_categorias)
+        )
+
+    def _acao_massa_mudar_categoria(self) -> None:
+        lista = SelecaoMultiplaLista(categorias.listar_categorias(self.conn))
+        dialogo = _DialogoValorMassa("Mudar categoria dos selecionados", lista, self)
+        if dialogo.exec() != QDialog.Accepted:
+            return
+        self._massa_aplicar_categoria(lista.selecionados())
+
+    def _massa_aplicar_campo(self, coluna: str, valor) -> None:
+        self._aplicar_em_selecionados(
+            lambda id_registro: records.update_record(
+                self.conn, self.tabela, id_registro, {coluna: valor}, usuario=self.usuario_logado
+            )
+        )
+
+    def _acao_massa_mudar_empresa(self) -> None:
+        combo = QComboBox()
+        self._popular_valor_combo_empresa(combo)
+        combo.setCurrentIndex(0)  # "(todas)" nao faz sentido aqui -- some do texto ao escolher uma de verdade
+        dialogo = _DialogoValorMassa("Mudar empresa dos selecionados", combo, self)
+        if dialogo.exec() != QDialog.Accepted:
+            return
+        id_empresa = combo.currentData()
+        if id_empresa is None:
+            return
+        self._massa_aplicar_campo("ID_EMPRESA", id_empresa)
+
+    def _acao_massa_mudar_campo_texto(self, coluna: str, rotulo: str) -> None:
+        campo = QLineEdit()
+        campo.setPlaceholderText(f"Novo(a) {rotulo.lower()}...")
+        dialogo = _DialogoValorMassa(f"Mudar {rotulo.lower()} dos selecionados", campo, self)
+        if dialogo.exec() != QDialog.Accepted:
+            return
+        valor = campo.text().strip()
+        if not valor:
+            return
+        self._massa_aplicar_campo(coluna, valor)
+
+    def _acao_massa_exportar_selecionados(self) -> None:
+        if not self._ids_selecionados:
+            return
+        ExportDialog(self.conn, tabela_padrao=self.tabela, parent=self, ids_selecionados=set(self._ids_selecionados)).exec()

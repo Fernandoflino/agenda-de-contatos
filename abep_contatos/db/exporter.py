@@ -86,12 +86,19 @@ def montar_exportacao_simples(conn: sqlite3.Connection, tabela: str,
                                campos_selecionados: list[str] | None = None,
                                filtro_campo: str | None = None,
                                filtro_valor: str = "",
-                               busca: str = "") -> tuple[list[str], list[dict]]:
+                               busca: str = "",
+                               ids_permitidos: set[int] | None = None) -> tuple[list[str], list[dict]]:
     """Prepara os dados do modo SIMPLES: devolve (colunas, linhas), ja
     filtrados e com so as colunas escolhidas -- pronto pra passar direto pra
     exportar_xlsx()/exportar_csv() logo abaixo.
+
+    `ids_permitidos`, quando informado, restringe a exportacao a SO esses
+    IDs (ex.: "Exportar selecionados" na lista de registros) -- os outros
+    filtros (busca, filtro_campo/filtro_valor) continuam valendo junto.
     """
     registros = get_records(conn, tabela)
+    if ids_permitidos is not None:
+        registros = [r for r in registros if r["ID"] in ids_permitidos]
     registros = filtrar_registros(registros, busca=busca, campo=filtro_campo, valor=filtro_valor)
 
     disponiveis, mapa_fonte = colunas_exportaveis(conn, tabela)
@@ -114,7 +121,8 @@ def montar_exportacao_mesclada(conn: sqlite3.Connection, tabela_pessoas: str,
                                 campos_por_valor: dict[str, list[str]] | None = None,
                                 campos_empresa: list[str] | None = None,
                                 filtro_campo: str | None = None,
-                                filtro_valor: str = "") -> tuple[list[str], list[dict]]:
+                                filtro_valor: str = "",
+                                ids_permitidos: set[int] | None = None) -> tuple[list[str], list[dict]]:
     """Prepara os dados do modo MESCLADO: uma linha por empresa, com um
     "bloco" de colunas pra cada "encaixe" escolhido em `valores_agrupador`
     (na ordem dada), recriando o antigo formato de mala direta por aba.
@@ -128,6 +136,8 @@ def montar_exportacao_mesclada(conn: sqlite3.Connection, tabela_pessoas: str,
     """
     campos_empresa = campos_empresa if campos_empresa is not None else ["SIGLA", "SIGLA_EMPRESA", "EMPRESA"]
     registros = get_records(conn, tabela_pessoas)
+    if ids_permitidos is not None:
+        registros = [r for r in registros if r["ID"] in ids_permitidos]
     registros = filtrar_registros(registros, campo=filtro_campo, valor=filtro_valor)
     empresas = resolver_empresas(conn)
     empresas_completas = {r["ID"]: r for r in get_records(conn, EMPRESAS)}

@@ -28,9 +28,11 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QScrollArea,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -40,8 +42,8 @@ from db.identifiers import quote_ident
 from db.records import resolver_empresas
 from db.schema import PESSOAS, USUARIOS
 from db.tables import get_column_order
-from ui import field_types
-from ui.theme import marcar_variante
+from ui import field_types, icons
+from ui.theme import cor_texto_mutado, marcar_variante
 from ui.widgets import CampoSenha, SelecaoMultiplaLista
 from ui.window_utils import preparar_janela
 
@@ -113,7 +115,13 @@ class RecordFormDialog(QDialog):
             widget = self._criar_widget_campo(coluna, valor_atual)
             rotulo = QLabel(field_types.rotulo_amigavel(coluna))
             rotulo.setBuddy(widget)  # liga o rotulo ao campo, pra leitores de tela anunciarem o nome certo
-            form.addRow(rotulo, widget)
+            if isinstance(widget, QDateEdit):
+                # QDateEdit nunca mostra "vazio" sozinho -- sem um botao pra
+                # limpar, nao tem como voltar atras depois de mexer no campo
+                # (nem apagar a data de um registro que ja tinha uma).
+                form.addRow(rotulo, self._envolver_com_botao_limpar(widget))
+            else:
+                form.addRow(rotulo, widget)
             self._widgets[coluna] = widget
 
         # Rede de seguranca: se por algum motivo a coluna vestigial CATEGORIA
@@ -229,9 +237,12 @@ class RecordFormDialog(QDialog):
                 # sem ninguem ter escolhido essa data de verdade.
                 campo_data.setDate(QDate.currentDate())
                 campo_data.setProperty("comecou_vazio", True)
-                campo_data.dateChanged.connect(
-                    lambda _novo, w=campo_data: w.setProperty("comecou_vazio", False)
-                )
+            # Conectado sempre (nao so quando comeca vazio) -- assim, depois
+            # de usar o botao "limpar" (que pode marcar um campo que TINHA
+            # data como vazio de novo), escolher uma data de verdade volta a
+            # desmarcar "vazio", tanto num campo novo quanto num que ja
+            # tinha valor.
+            campo_data.dateChanged.connect(lambda _novo, w=campo_data: w.setProperty("comecou_vazio", False))
             return campo_data
 
         campo_texto = QLineEdit(str(valor_atual) if valor_atual not in (None, "") else "")
@@ -253,6 +264,34 @@ class RecordFormDialog(QDialog):
                 campo_texto.setCompleter(completador)
 
         return campo_texto
+
+    def _envolver_com_botao_limpar(self, campo_data: QDateEdit) -> QWidget:
+        """Junta um QDateEdit com um botaozinho "x" do lado, que volta o
+        campo pro estado "vazio" (ver o comentario sobre comecou_vazio em
+        _criar_widget_campo) -- sem isso nao tem como deixar a data em
+        branco depois de mexer no campo, ou apagar a data de um registro
+        que ja tinha uma."""
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        layout.addWidget(campo_data, stretch=1)
+
+        botao_limpar = QToolButton()
+        botao_limpar.setIcon(icons.icone("fechar", cor_texto_mutado(self.conn), tamanho=12))
+        botao_limpar.setToolTip("Limpar data")
+        botao_limpar.clicked.connect(lambda: self._limpar_data(campo_data))
+        layout.addWidget(botao_limpar)
+        return container
+
+    def _limpar_data(self, campo_data: QDateEdit) -> None:
+        # Bloqueia o sinal enquanto reseta a data exibida -- senao o
+        # dateChanged conectado em _criar_widget_campo desmarcaria
+        # "comecou_vazio" de volta na hora, antes da linha de baixo rodar.
+        campo_data.blockSignals(True)
+        campo_data.setDate(QDate.currentDate())
+        campo_data.blockSignals(False)
+        campo_data.setProperty("comecou_vazio", True)
 
     def _valores_existentes(self, coluna: str) -> list[str]:
         try:

@@ -15,7 +15,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QComboBox
 
-from db import auth, connection, importer, records
+from db import anotacoes, auth, categorias, connection, dashboard, importer, records
 from db.schema import EMPRESAS, PESSOAS
 from ui.dashboard_view import DashboardView
 from ui.export_dialog import ExportDialog
@@ -131,6 +131,55 @@ def test_lista_registros_view_filtro_por_empresa_usa_lista_nao_texto(banco_com_d
     assert all(r.get("ID_EMPRESA") == id_empresa for r in view._registros_filtrados)
 
 
+def test_lista_registros_view_filtro_categoria_marca_mais_de_uma(banco_com_dados):
+    """Pedido do usuario: o filtro de Categoria precisa aceitar marcar mais
+    de uma categoria ao mesmo tempo -- um contato aparece se tiver QUALQUER
+    UMA das marcadas (uniao, nao intersecao)."""
+    from ui.widgets import FiltroMultiplaEscolha
+
+    categorias.adicionar_categoria(banco_com_dados, "Presidentes")
+    categorias.adicionar_categoria(banco_com_dados, "Diretores Técnicos")
+    categorias.adicionar_categoria(banco_com_dados, "Diretores Financeiros")
+
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    id_presidente = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Presidente"})
+    id_diretor = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Diretor"})
+    id_financeiro = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Financeiro"})
+    categorias.definir_categorias_da_pessoa(banco_com_dados, id_presidente, ["Presidentes"])
+    categorias.definir_categorias_da_pessoa(banco_com_dados, id_diretor, ["Diretores Técnicos"])
+    categorias.definir_categorias_da_pessoa(banco_com_dados, id_financeiro, ["Diretores Financeiros"])
+
+    view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    view._adicionar_linha_filtro()
+    linha = view._linhas_filtro[0]
+    linha.combo_campo.setCurrentIndex(linha.combo_campo.findText("Categoria"))
+    assert isinstance(linha.widget_valor, FiltroMultiplaEscolha)
+
+    linha.widget_valor.marcar(["Presidentes", "Diretores Técnicos"])
+    ids_filtrados = {r["ID"] for r in view._registros_filtrados}
+    assert ids_filtrados == {id_presidente, id_diretor}
+    assert linha.widget_valor.text() == "Categoria (2)"
+
+
+def test_lista_registros_view_filtro_categoria_salva_e_restaura_varios_valores(banco_com_dados):
+    """O filtro de Categoria com varias marcadas precisa sobreviver a
+    fechar/abrir a tela de novo, igual qualquer outro filtro salvo."""
+    categorias.adicionar_categoria(banco_com_dados, "Presidentes")
+    categorias.adicionar_categoria(banco_com_dados, "Diretores Técnicos")
+
+    view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    view._adicionar_linha_filtro()
+    linha = view._linhas_filtro[0]
+    linha.combo_campo.setCurrentIndex(linha.combo_campo.findText("Categoria"))
+    linha.widget_valor.marcar(["Presidentes", "Diretores Técnicos"])
+    view._salvar_preferencias()
+
+    view_reaberta = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    assert len(view_reaberta._linhas_filtro) == 1
+    linha_restaurada = view_reaberta._linhas_filtro[0]
+    assert set(linha_restaurada.widget_valor.selecionados()) == {"Presidentes", "Diretores Técnicos"}
+
+
 def test_lista_registros_view_varios_filtros_combinam_com_e(banco_com_dados):
     """Pedido do usuario: os filtros tem que permitir combinar MAIS DE UM ao
     mesmo tempo (ex.: Categoria = X E Empresa = Y), nao so um por vez -- cada
@@ -154,7 +203,7 @@ def test_lista_registros_view_varios_filtros_combinam_com_e(banco_com_dados):
     view._adicionar_linha_filtro()
     linha_categoria = view._linhas_filtro[1]
     linha_categoria.combo_campo.setCurrentIndex(linha_categoria.combo_campo.findText("Categoria"))
-    linha_categoria.widget_valor.setCurrentIndex(linha_categoria.widget_valor.findData(categoria))
+    linha_categoria.widget_valor.marcar([categoria])
 
     combinado = view._registros_filtrados
     ids_combinado = {r["ID"] for r in combinado}
@@ -209,7 +258,7 @@ def test_lista_registros_view_preferencias_nao_vazam_entre_usuarios(banco_com_da
     view_admin._adicionar_linha_filtro()
     linha = view_admin._linhas_filtro[0]
     linha.combo_campo.setCurrentIndex(linha.combo_campo.findText("Categoria"))
-    linha.widget_valor.setCurrentIndex(linha.widget_valor.findData(categoria))
+    linha.widget_valor.marcar([categoria])
 
     view_outra_pessoa = ListaRegistrosView(banco_com_dados, PESSOAS, "outra_pessoa")
     assert view_outra_pessoa._linhas_filtro == []
@@ -306,6 +355,41 @@ def test_lista_registros_view_painel_detalhe_acha_email_e_telefone(banco_com_dad
     assert view._email_atual == pessoa_com_email["EMAIL"]
 
 
+def test_lista_registros_view_botao_copiar_copia_valor_para_area_de_transferencia(banco_com_dados):
+    """O botao de copiar ao lado de um valor no painel de detalhes precisa
+    copiar exatamente esse texto (ja formatado, igual aparece na tela) pra
+    area de transferencia."""
+    view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    botao = view._botao_copiar("fulano@teste.com")
+    botao.click()
+    assert QApplication.clipboard().text() == "fulano@teste.com"
+
+
+def test_lista_registros_view_icone_anotacao_aparece_quando_tem_anotacao(banco_com_dados):
+    """O icone de nota ao lado do nome so aparece pra quem TEM anotacao
+    salva -- consulta em lote (ids_com_anotacao), nao uma por linha."""
+    from PySide6.QtWidgets import QLabel
+
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    id_com_nota = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Com Nota"})
+    id_sem_nota = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Sem Nota"})
+    anotacoes.salvar_anotacao(banco_com_dados, PESSOAS, id_com_nota, "Alguma anotação.")
+
+    view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    view.carregar_dados()
+
+    def tem_icone_nota(id_registro):
+        linha = next(i for i, r in enumerate(view._pagina_atual_de_registros()) if r["ID"] == id_registro)
+        celula = view.tabela_widget.cellWidget(linha, 1)
+        return any(
+            isinstance(w, QLabel) and w.toolTip() == "Este registro tem uma anotação"
+            for w in celula.findChildren(QLabel)
+        )
+
+    assert tem_icone_nota(id_com_nota)
+    assert not tem_icone_nota(id_sem_nota)
+
+
 def test_lista_registros_view_bulk_selecao_mostra_botao_excluir(banco_com_dados):
     view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
     assert view.botao_excluir_selecionados.isHidden()
@@ -317,6 +401,69 @@ def test_lista_registros_view_bulk_selecao_mostra_botao_excluir(banco_com_dados)
 
     view._alternar_selecao(primeiro_id, False)
     assert view.botao_excluir_selecionados.isHidden()
+
+
+def test_lista_registros_view_bulk_selecao_mostra_botao_acoes_massa(banco_com_dados):
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    id_pessoa = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Fulano"})
+
+    view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    assert view.botao_acoes_massa.isHidden()
+
+    view._alternar_selecao(id_pessoa, True)
+    assert not view.botao_acoes_massa.isHidden()
+    assert "1" in view.botao_acoes_massa.text()
+
+
+def test_lista_registros_view_menu_acoes_massa_tem_mudar_campos_so_para_pessoas(banco_com_dados):
+    """"Mudar categoria/empresa/Cargo/Tratamento" so fazem sentido pra
+    PESSOAS -- outras tabelas (ex.: Empresas) so oferecem "Exportar
+    selecionados"."""
+    view_pessoas = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    textos_pessoas = {a.text() for a in view_pessoas.botao_acoes_massa.menu().actions()}
+    assert "Mudar categoria..." in textos_pessoas
+    assert "Mudar empresa..." in textos_pessoas
+    assert "Mudar Cargo..." in textos_pessoas
+    assert "Mudar Tratamento..." in textos_pessoas
+    assert "Exportar selecionados..." in textos_pessoas
+
+    view_empresas = ListaRegistrosView(banco_com_dados, EMPRESAS, "admin")
+    textos_empresas = {a.text() for a in view_empresas.botao_acoes_massa.menu().actions()}
+    assert textos_empresas == {"Exportar selecionados..."}
+
+
+def test_lista_registros_view_massa_aplicar_categoria_muda_todos_selecionados(banco_com_dados):
+    categorias.adicionar_categoria(banco_com_dados, "Diretores Técnicos")
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    id_a = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "A"})
+    id_b = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "B"})
+
+    view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    view._ids_selecionados = {id_a, id_b}
+    view._massa_aplicar_categoria(["Diretores Técnicos"])
+
+    assert categorias.categorias_da_pessoa(banco_com_dados, id_a) == ["Diretores Técnicos"]
+    assert categorias.categorias_da_pessoa(banco_com_dados, id_b) == ["Diretores Técnicos"]
+
+
+def test_lista_registros_view_massa_aplicar_campo_muda_empresa_e_texto(banco_com_dados):
+    id_empresa_1 = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "AAA", "EMPRESA": "Empresa AAA"})
+    id_empresa_2 = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "BBB", "EMPRESA": "Empresa BBB"})
+    id_a = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa_1, "NOME": "A"})
+    id_b = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa_1, "NOME": "B"})
+
+    view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    view._ids_selecionados = {id_a, id_b}
+    view._massa_aplicar_campo("ID_EMPRESA", id_empresa_2)
+    view._ids_selecionados = {id_a, id_b}
+    view._massa_aplicar_campo("CARGO", "Diretor Financeiro")
+
+    pessoa_a = records.get_record(banco_com_dados, PESSOAS, id_a)
+    pessoa_b = records.get_record(banco_com_dados, PESSOAS, id_b)
+    assert pessoa_a["ID_EMPRESA"] == id_empresa_2
+    assert pessoa_b["ID_EMPRESA"] == id_empresa_2
+    assert pessoa_a["CARGO"] == "Diretor Financeiro"
+    assert pessoa_b["CARGO"] == "Diretor Financeiro"
 
 
 def test_lista_registros_view_anotacao_salva_e_recarrega(banco_com_dados):
@@ -470,6 +617,56 @@ def test_record_form_dialog_nao_preenche_data_vazia_com_hoje_ao_salvar(banco_com
     assert not dialogo.resultado()["DATA DE NASCIMENTO"]
 
 
+def test_record_form_dialog_botao_limpar_data_permite_salvar_em_branco(banco_com_dados):
+    """Regressao: antes, uma vez que o QDateEdit tinha uma data carregada
+    (editando um registro que ja tinha data de nascimento), nao existia
+    jeito nenhum de voltar pro estado 'em branco' -- nem um botao de limpar
+    existia. O botao novo (_limpar_data) devolve o campo pro estado vazio
+    mesmo nesse caso, e o valor salvo vira None."""
+    from PySide6.QtWidgets import QDateEdit
+
+    from db import records as records_mod
+
+    id_empresa = records_mod.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    id_pessoa = records_mod.create_record(
+        banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Fulano", "DATA DE NASCIMENTO": "1990-05-20"}
+    )
+    pessoa = records_mod.get_record(banco_com_dados, PESSOAS, id_pessoa)
+
+    dialogo = RecordFormDialog(banco_com_dados, PESSOAS, registro=pessoa)
+    widget = dialogo._widgets["DATA DE NASCIMENTO"]
+    assert isinstance(widget, QDateEdit)
+
+    dialogo._limpar_data(widget)
+    dialogo._ao_salvar()
+    assert dialogo.resultado()["DATA DE NASCIMENTO"] is None
+
+
+def test_record_form_dialog_escolher_data_depois_de_limpar_volta_a_salvar(banco_com_dados):
+    """Depois de limpar um campo que ja tinha data, escolher uma data NOVA
+    de verdade precisa voltar a marcar o campo como preenchido -- antes
+    dessa mudanca, o sinal dateChanged so era conectado em campos que
+    COMECAVAM vazios, entao um campo que tinha data nunca reagia a essa
+    reconexao."""
+    from PySide6.QtCore import QDate
+
+    from db import records as records_mod
+
+    id_empresa = records_mod.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    id_pessoa = records_mod.create_record(
+        banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Fulano", "DATA DE NASCIMENTO": "1990-05-20"}
+    )
+    pessoa = records_mod.get_record(banco_com_dados, PESSOAS, id_pessoa)
+
+    dialogo = RecordFormDialog(banco_com_dados, PESSOAS, registro=pessoa)
+    widget = dialogo._widgets["DATA DE NASCIMENTO"]
+
+    dialogo._limpar_data(widget)
+    widget.setDate(QDate(2000, 1, 1))
+    dialogo._ao_salvar()
+    assert dialogo.resultado()["DATA DE NASCIMENTO"] == "2000-01-01"
+
+
 def test_sheet_manager_dialog_constroi(banco_com_dados):
     dialogo = SheetManagerDialog(banco_com_dados, "admin")
     assert dialogo.lista_tabelas.count() > 0
@@ -512,6 +709,15 @@ def test_sheet_manager_dialog_mover_tabela_troca_ordem_e_persiste(banco_com_dado
 def test_export_dialog_constroi(banco_com_dados):
     dialogo = ExportDialog(banco_com_dados, tabela_padrao=PESSOAS)
     assert dialogo.combo_tabela.count() > 0
+
+
+def test_export_dialog_com_ids_selecionados_trava_tabela(banco_com_dados):
+    """Quando aberto a partir de "Exportar selecionados" (acao em massa),
+    a escolha de tabela fica travada -- os IDs marcados so fazem sentido
+    pra tabela de onde vieram."""
+    dialogo = ExportDialog(banco_com_dados, tabela_padrao=PESSOAS, ids_selecionados={1, 2, 3})
+    assert not dialogo.combo_tabela.isEnabled()
+    assert "3" in dialogo.windowTitle()
 
 
 def test_settings_dialog_constroi(banco_com_dados):
@@ -628,6 +834,60 @@ def test_dashboard_view_recarregar_atualiza_apos_novo_contato(banco_com_dados):
     primeiro_cartao = view._linha_cartoes.itemAt(0).widget()
     textos = [lbl.text() for lbl in primeiro_cartao.findChildren(QLabel)]
     assert str(total_antes + 1) in textos
+
+
+def test_dashboard_view_filtro_so_afeta_lista_de_aniversariantes(banco_com_dados):
+    """Pedido do usuario: o filtro do Painel filtra SO "Proximos
+    aniversarios" -- os cartoes do topo continuam mostrando o total geral,
+    sem levar o filtro em conta."""
+    from PySide6.QtWidgets import QLabel
+
+    id_empresa_a = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "AAA", "EMPRESA": "Empresa AAA"})
+    id_empresa_b = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "BBB", "EMPRESA": "Empresa BBB"})
+    records.create_record(
+        banco_com_dados, PESSOAS,
+        {"ID_EMPRESA": id_empresa_a, "NOME": "Da Empresa A", "DATA DE NASCIMENTO": "1990-01-01"},
+    )
+    records.create_record(
+        banco_com_dados, PESSOAS,
+        {"ID_EMPRESA": id_empresa_b, "NOME": "Da Empresa B", "DATA DE NASCIMENTO": "1990-01-02"},
+    )
+
+    view = DashboardView(banco_com_dados, "admin")
+    view._adicionar_linha_filtro_painel()
+    linha = view._linhas_filtro_painel[0]
+    linha.combo_campo.setCurrentIndex(linha.combo_campo.findText("Empresa"))
+    linha.widget_valor.setCurrentIndex(linha.widget_valor.findData(id_empresa_a))
+
+    nomes = [a.nome for a in dashboard.proximos_aniversarios(banco_com_dados, registros=view._pessoas_filtradas())]
+    assert nomes == ["Da Empresa A"]
+
+    # O total de contatos cadastrados continua sendo TODOS, filtro ou nao.
+    total_pessoas = len(records.get_records(banco_com_dados, PESSOAS))
+    primeiro_cartao = view._linha_cartoes.itemAt(0).widget()
+    textos = [lbl.text() for lbl in primeiro_cartao.findChildren(QLabel)]
+    assert str(total_pessoas) in textos
+
+
+def test_dashboard_view_filtro_salva_e_restaura_por_usuario(banco_com_dados):
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+
+    view = DashboardView(banco_com_dados, "admin")
+    view._adicionar_linha_filtro_painel()
+    linha = view._linhas_filtro_painel[0]
+    linha.combo_campo.setCurrentIndex(linha.combo_campo.findText("Empresa"))
+    linha.widget_valor.setCurrentIndex(linha.widget_valor.findData(id_empresa))
+
+    view_reaberta = DashboardView(banco_com_dados, "admin")
+    assert len(view_reaberta._linhas_filtro_painel) == 1
+    linha_restaurada = view_reaberta._linhas_filtro_painel[0]
+    assert linha_restaurada.combo_campo.currentData() == "_EMPRESA_BUSCA"
+    assert linha_restaurada.widget_valor.currentData() == id_empresa
+
+    # Outro usuario no mesmo banco nao ve esse filtro.
+    auth.criar_usuario(banco_com_dados, "outra_pessoa", "senha123", "Outra Pessoa")
+    view_outra_pessoa = DashboardView(banco_com_dados, "outra_pessoa")
+    assert view_outra_pessoa._linhas_filtro_painel == []
 
 
 def test_historico_dialog_mostra_log_da_importacao(banco_com_dados):

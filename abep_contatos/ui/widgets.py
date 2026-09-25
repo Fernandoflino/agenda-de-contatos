@@ -15,7 +15,10 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
+    QToolButton,
     QWidget,
+    QWidgetAction,
 )
 
 
@@ -85,8 +88,15 @@ class SelecaoMultiplaLista(QListWidget):
         super().__init__(parent)
         self.setSelectionMode(QAbstractItemView.NoSelection)
         self.setMaximumHeight(150)
+        self.redefinir(opcoes, marcados)
 
-        marcados_set = set(marcados or [])
+    def redefinir(self, opcoes: list[str], marcados: list[str] | None = None) -> None:
+        """Troca a lista de opcoes mostradas, preservando quais delas
+        continuam marcadas -- usado quando as opcoes disponiveis podem ter
+        mudado (ex.: categoria nova criada) sem perder a selecao atual."""
+        marcados_set = set(marcados if marcados is not None else self.selecionados())
+        self.clear()
+
         for nome in opcoes:
             item = QListWidgetItem(nome)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
@@ -108,3 +118,66 @@ class SelecaoMultiplaLista(QListWidget):
             if item.checkState() == Qt.Checked:
                 resultado.append(item.data(Qt.UserRole) or item.text())
         return resultado
+
+
+class FiltroMultiplaEscolha(QToolButton):
+    """Botao que abre um popup com uma SelecaoMultiplaLista -- usado em
+    filtros que precisam aceitar mais de um valor marcado ao mesmo tempo
+    (ex.: filtrar Contatos por Categoria, onde um registro deve aparecer se
+    tiver QUALQUER UMA das categorias marcadas). O texto do botao resume
+    quantas opcoes estao marcadas."""
+
+    mudou = Signal()
+
+    def __init__(self, rotulo_base: str, opcoes: list[str] | None = None, parent=None):
+        super().__init__(parent)
+        self._rotulo_base = rotulo_base
+        self._opcoes = list(opcoes or [])
+        self.setPopupMode(QToolButton.InstantPopup)
+
+        self.lista = SelecaoMultiplaLista(self._opcoes)
+        self.lista.itemChanged.connect(self._ao_mudar_selecao)
+
+        menu = QMenu(self)
+        acao = QWidgetAction(menu)
+        acao.setDefaultWidget(self.lista)
+        menu.addAction(acao)
+        self.setMenu(menu)
+
+        self._atualizar_texto()
+
+    def selecionados(self) -> list[str]:
+        return self.lista.selecionados()
+
+    def redefinir_opcoes(self, opcoes: list[str]) -> None:
+        # redefinir() nao dispara itemChanged (os itens novos ja nascem com
+        # o estado marcado/desmarcado certo, antes de entrar na lista) --
+        # entao isso nao conta como o usuario "mudando o filtro", igual
+        # recarregar o combo de Empresa tambem nao conta (ver
+        # _atualizar_widget_valor_linha).
+        self._opcoes = list(opcoes)
+        self.lista.redefinir(self._opcoes)
+        self._atualizar_texto()
+
+    def marcar(self, valores: list[str]) -> None:
+        """Marca exatamente esses valores (usado ao restaurar um filtro
+        salvo) -- os demais ficam desmarcados. Ao contrario de
+        redefinir_opcoes(), isso conta como uma mudanca de verdade no
+        filtro (emite `mudou`), igual restaurar o combo de Empresa tambem
+        dispara currentIndexChanged."""
+        self.lista.redefinir(self._opcoes, marcados=list(valores))
+        self._atualizar_texto()
+        self.mudou.emit()
+
+    def _ao_mudar_selecao(self, _item: QListWidgetItem) -> None:
+        self._atualizar_texto()
+        self.mudou.emit()
+
+    def _atualizar_texto(self) -> None:
+        quantidade = len(self.selecionados())
+        if quantidade == 0:
+            self.setText(self._rotulo_base)
+        elif quantidade == 1:
+            self.setText(f"{self._rotulo_base} (1)")
+        else:
+            self.setText(f"{self._rotulo_base} ({quantidade})")

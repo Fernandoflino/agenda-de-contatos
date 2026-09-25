@@ -259,7 +259,7 @@ class MainWindow(QMainWindow):
 
         if tabela == _ITEM_PAINEL:
             if self._pagina_dashboard is None:
-                self._pagina_dashboard = DashboardView(self.conn)
+                self._pagina_dashboard = DashboardView(self.conn, self.usuario_logado.usuario)
                 self.paginas.addWidget(self._pagina_dashboard)
             else:
                 self._pagina_dashboard.carregar_dados()

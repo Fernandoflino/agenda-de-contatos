@@ -18,6 +18,21 @@ def test_total_contatos_e_empresas(conn):
     assert dashboard.total_contatos(conn) == 1
 
 
+def test_proximos_aniversarios_usa_registros_ja_filtrados_quando_informado(conn):
+    """O filtro do Painel (ver ui/dashboard_view.py) so afeta essa lista --
+    passa uma lista de PESSOAS ja filtrada em vez de deixar buscar tudo do
+    banco de novo."""
+    hoje = date(2026, 9, 9)
+    records.create_record(conn, PESSOAS, {"NOME": "Incluido", "DATA DE NASCIMENTO": "1990-09-29"})
+    excluido = records.create_record(conn, PESSOAS, {"NOME": "Excluido pelo filtro", "DATA DE NASCIMENTO": "1985-09-09"})
+
+    todos = records.get_records(conn, PESSOAS)
+    so_incluido = [p for p in todos if p["ID"] != excluido]
+
+    lista = dashboard.proximos_aniversarios(conn, hoje=hoje, registros=so_incluido)
+    assert [a.nome for a in lista] == ["Incluido"]
+
+
 def test_proximos_aniversarios_ordena_pelo_mais_perto(conn):
     hoje = date(2026, 9, 9)
     records.create_record(conn, PESSOAS, {"NOME": "Nasce em 20 dias", "DATA DE NASCIMENTO": "1990-09-29"})

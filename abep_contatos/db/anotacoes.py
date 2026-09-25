@@ -24,6 +24,22 @@ def obter_anotacao(conn: sqlite3.Connection, tabela: str, registro_id: int) -> s
     return (row[0] if row else "") or ""
 
 
+def ids_com_anotacao(conn: sqlite3.Connection, tabela: str, ids: list[int]) -> set[int]:
+    """Dos IDs informados (tipicamente os registros de UMA pagina da lista),
+    devolve quais tem uma anotacao de verdade salva -- uma unica consulta,
+    em vez de uma por linha (ver ui/lista_registros_view.py, onde isso vira
+    um iconezinho ao lado do nome)."""
+    if not ids:
+        return set()
+    marcadores = ",".join("?" for _ in ids)
+    linhas = conn.execute(
+        f"""SELECT registro_id FROM {APP_ANOTACOES}
+            WHERE tabela = ? AND registro_id IN ({marcadores}) AND texto != ''""",
+        (tabela, *ids),
+    ).fetchall()
+    return {linha[0] for linha in linhas}
+
+
 def salvar_anotacao(conn: sqlite3.Connection, tabela: str, registro_id: int, texto: str) -> None:
     texto = (texto or "").strip()
     if not texto:

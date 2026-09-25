@@ -24,6 +24,18 @@ def test_exportacao_simples_filtra_por_cargo(conn):
     assert "NOME" in columns
 
 
+def test_exportacao_simples_restringe_por_ids_permitidos(conn):
+    """"Exportar selecionados" (acao em massa na lista de registros) precisa
+    exportar SO os IDs marcados, mesmo sem nenhum outro filtro de campo."""
+    _preparar(conn)
+    todos = records.get_records(conn, "PESSOAS")
+    ids_selecionados = {todos[0]["ID"], todos[2]["ID"]}
+
+    columns, rows = exporter.montar_exportacao_simples(conn, "PESSOAS", ids_permitidos=ids_selecionados)
+    assert len(rows) == 2
+    assert {r["NOME"] for r in rows} == {todos[0]["NOME"], todos[2]["NOME"]}
+
+
 def test_exportacao_simples_mostra_empresa_em_vez_de_id(conn):
     _preparar(conn)
     columns, rows = exporter.montar_exportacao_simples(conn, "PESSOAS")

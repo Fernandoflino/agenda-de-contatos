@@ -58,9 +58,11 @@ def _itens_marcados(lista: QListWidget) -> list[str]:
 
 
 class ExportDialog(QDialog):
-    def __init__(self, conn: sqlite3.Connection, tabela_padrao: str = PESSOAS, parent=None):
+    def __init__(self, conn: sqlite3.Connection, tabela_padrao: str = PESSOAS, parent=None,
+                 ids_selecionados: set[int] | None = None):
         super().__init__(parent)
         self.conn = conn
+        self.ids_selecionados = ids_selecionados
         self.setWindowTitle("Exportar dados")
         preparar_janela(self, 640, 560)
 
@@ -70,6 +72,12 @@ class ExportDialog(QDialog):
         if indice_padrao >= 0:
             self.combo_tabela.setCurrentIndex(indice_padrao)
         self.combo_tabela.currentTextChanged.connect(self._recarregar_colunas_simples)
+        if ids_selecionados is not None:
+            # Os IDs marcados so fazem sentido pra tabela de onde vieram --
+            # trocar de tabela aqui invalidaria a selecao, entao a escolha
+            # de tabela fica travada nessa (o titulo ja deixa claro o porque).
+            self.combo_tabela.setEnabled(False)
+            self.setWindowTitle(f"Exportar {len(ids_selecionados)} selecionado(s)")
 
         self.abas = QTabWidget()
         self.abas.addTab(self._criar_aba_simples(), "Simples")
@@ -224,13 +232,16 @@ class ExportDialog(QDialog):
                 campos_selecionados=colunas or None,
                 filtro_campo=self.campo_filtro_campo.text().strip() or None,
                 filtro_valor=self.campo_filtro_valor.text().strip(),
+                ids_permitidos=self.ids_selecionados,
             )
         else:
             cargos = _itens_marcados(self.lista_cargos)
             if not cargos:
                 mostrar_erro(self, "Marque ao menos um cargo para o modo mesclado.")
                 return
-            colunas_disponiveis, linhas = exporter.montar_exportacao_mesclada(self.conn, tabela, cargos)
+            colunas_disponiveis, linhas = exporter.montar_exportacao_mesclada(
+                self.conn, tabela, cargos, ids_permitidos=self.ids_selecionados
+            )
 
         if not linhas:
             mostrar_erro(self, "Nenhum registro encontrado com esses filtros.")
