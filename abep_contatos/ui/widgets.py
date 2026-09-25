@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 
 from ui.ajustar_foto_dialog import AjustarFotoDialog
 from ui.avatar import criar_avatar
+from ui import imagens
 from ui.imagens import pixmap_para_bytes_png
 
 _TAMANHO_MAX_FOTO = 512  # pixels -- um pouco maior que o logo (256): a foto e vista ampliada no popup
@@ -200,14 +201,30 @@ class WidgetFoto(QWidget):
     (a foto atual, ou o avatar de iniciais de sempre enquanto nao tem foto)
     + botoes "Escolher imagem...", "Editar foto..." e "Remover foto". Mesmo
     padrao ja usado pro logotipo do painel (ui/settings_dialog.py), so que
-    reutilizavel."""
+    reutilizavel.
+
+    Guarda DOIS conjuntos de bytes: `_foto_bytes` (o recorte circular,
+    enquadrado/girado -- so pra exibir o avatar na tela, com tamanho
+    limitado) e `_foto_original_bytes` (o arquivo escolhido, intacto, sem
+    nenhum recorte/redimensionamento -- e o que sai quando alguem BAIXA a
+    foto depois, pra nunca perder qualidade nem enquadramento do arquivo
+    de verdade)."""
 
     _TAMANHO_PREVIEW = 72
 
-    def __init__(self, nome_pessoa: str, foto_atual: bytes | None, parent=None):
+    def __init__(
+        self,
+        nome_pessoa: str,
+        foto_atual: bytes | None,
+        foto_original_atual: bytes | None = None,
+        foto_original_mime_atual: str | None = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self._nome_pessoa = nome_pessoa
         self._foto_bytes: bytes | None = foto_atual
+        self._foto_original_bytes: bytes | None = foto_original_atual
+        self._foto_original_mime: str | None = foto_original_mime_atual
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -252,24 +269,30 @@ class WidgetFoto(QWidget):
         pixmap_original = QPixmap(caminho)
         if pixmap_original.isNull():
             return
-        self._ajustar_e_salvar(pixmap_original)
+        dados_originais, mime_original = imagens.ler_bytes_originais(caminho)
+        self._ajustar_e_salvar(pixmap_original, novo_original=(dados_originais, mime_original))
 
     def _editar_foto(self) -> None:
-        """Reabre o editor de enquadrar/girar na foto que JA esta salva --
-        pra quando a pessoa so quer corrigir o enquadramento/rotacao de
-        novo, sem precisar achar o arquivo original no computador de novo."""
-        if not self._foto_bytes:
+        """Reabre o editor de enquadrar/girar -- a partir do arquivo
+        ORIGINAL, quando tiver (pra nao perder qualidade recortando um
+        recorte de novo); em registro antigo, de antes do original ser
+        guardado separado, usa o recorte mesmo como ponto de partida (e o
+        unico dado que sobrou pra esses)."""
+        fonte = self._foto_original_bytes or self._foto_bytes
+        if not fonte:
             return
-        pixmap_atual = QPixmap()
-        if not pixmap_atual.loadFromData(self._foto_bytes):
+        pixmap_fonte = QPixmap()
+        if not pixmap_fonte.loadFromData(fonte):
             return
-        self._ajustar_e_salvar(pixmap_atual)
+        self._ajustar_e_salvar(pixmap_fonte)
 
-    def _ajustar_e_salvar(self, pixmap_original: QPixmap) -> None:
+    def _ajustar_e_salvar(self, pixmap_original: QPixmap, novo_original: tuple[bytes, str] | None = None) -> None:
         recorte = self._abrir_ajuste(pixmap_original)
         if recorte is None:
             return  # cancelou o ajuste -- mantem a foto que ja estava
         self._foto_bytes = pixmap_para_bytes_png(recorte, _TAMANHO_MAX_FOTO)
+        if novo_original is not None:
+            self._foto_original_bytes, self._foto_original_mime = novo_original
         self._atualizar_preview()
 
     def _abrir_ajuste(self, pixmap_original: QPixmap) -> QPixmap | None:
@@ -280,6 +303,8 @@ class WidgetFoto(QWidget):
 
     def _remover_foto(self) -> None:
         self._foto_bytes = None
+        self._foto_original_bytes = None
+        self._foto_original_mime = None
         self._atualizar_preview()
 
     def foto_bytes(self) -> bytes | None:
@@ -287,3 +312,9 @@ class WidgetFoto(QWidget):
 
     def foto_mime(self) -> str | None:
         return "image/png" if self._foto_bytes else None
+
+    def foto_original_bytes(self) -> bytes | None:
+        return self._foto_original_bytes
+
+    def foto_original_mime(self) -> str | None:
+        return self._foto_original_mime

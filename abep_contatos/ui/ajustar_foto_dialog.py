@@ -104,15 +104,17 @@ class _PalcoAjusteFoto(QWidget):
         self._deslocamento = QPointF(x, y)
 
     def resultado(self) -> QPixmap:
-        """O recorte final -- exatamente o que aparece dentro do palco
-        agora, em um QPixmap quadrado de _TAMANHO_PALCO x _TAMANHO_PALCO."""
-        recorte = QPixmap(_TAMANHO_PALCO, _TAMANHO_PALCO)
-        recorte.fill(Qt.transparent)
-        pintor = QPainter(recorte)
-        pintor.setRenderHint(QPainter.SmoothPixmapTransform)
-        self._desenhar_imagem(pintor)
-        pintor.end()
-        return recorte
+        """O recorte final -- a REGIAO da imagem original que esta visivel
+        dentro do palco agora, recortada na resolucao NATIVA da imagem (um
+        QPixmap.copy() pixel-a-pixel, sem reamostrar pra baixo) -- nao pode
+        perder qualidade, so a area visivel e que muda."""
+        origem = QRectF(
+            -self._deslocamento.x() / self._zoom,
+            -self._deslocamento.y() / self._zoom,
+            _TAMANHO_PALCO / self._zoom,
+            _TAMANHO_PALCO / self._zoom,
+        )
+        return self._imagem.copy(origem.toAlignedRect())
 
     # -- desenho / interacao ---------------------------------------------------
 

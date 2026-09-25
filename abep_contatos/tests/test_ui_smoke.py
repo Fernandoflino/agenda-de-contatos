@@ -356,7 +356,13 @@ def test_lista_registros_view_aba_informacoes_nao_mostra_foto_como_texto(banco_c
     texto (bytes crus) na aba "Informacoes"."""
     foto = _png_bytes_teste(banco_com_dados)
     id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
-    id_pessoa = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Com Foto", "FOTO": foto})
+    id_pessoa = records.create_record(
+        banco_com_dados, PESSOAS,
+        {
+            "ID_EMPRESA": id_empresa, "NOME": "Com Foto", "FOTO": foto, "FOTO_MIME": "image/png",
+            "FOTO_ORIGINAL": foto, "FOTO_ORIGINAL_MIME": "image/png",
+        },
+    )
 
     view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
     pessoa = records.get_record(banco_com_dados, PESSOAS, id_pessoa)
@@ -369,6 +375,8 @@ def test_lista_registros_view_aba_informacoes_nao_mostra_foto_como_texto(banco_c
     ]
     assert "Foto" not in rotulos
     assert "Foto Mime" not in rotulos
+    assert "Foto Original" not in rotulos
+    assert "Foto Original Mime" not in rotulos
 
 
 def test_lista_registros_view_filtro_de_campo_nao_oferece_foto(banco_com_dados):
@@ -380,6 +388,8 @@ def test_lista_registros_view_filtro_de_campo_nao_oferece_foto(banco_com_dados):
     campos = {campo for _, campo in rotulos_e_campos}
     assert "FOTO" not in campos
     assert "FOTO_MIME" not in campos
+    assert "FOTO_ORIGINAL" not in campos
+    assert "FOTO_ORIGINAL_MIME" not in campos
 
 
 def test_lista_registros_view_botao_copiar_copia_valor_para_area_de_transferencia(banco_com_dados):
@@ -423,6 +433,16 @@ def _png_bytes_teste(qapp) -> bytes:
 
     pixmap = QPixmap(20, 20)
     pixmap.fill(Qt.red)
+    dados = QByteArray()
+    buffer = QBuffer(dados)
+    buffer.open(QIODevice.WriteOnly)
+    pixmap.save(buffer, "PNG")
+    return bytes(dados)
+
+
+def _pixmap_para_bytes(pixmap) -> bytes:
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+
     dados = QByteArray()
     buffer = QBuffer(dados)
     buffer.open(QIODevice.WriteOnly)
@@ -637,6 +657,8 @@ def test_record_form_dialog_foto_novo_registro_comeca_sem_foto(banco_com_dados):
     dialogo = RecordFormDialog(banco_com_dados, PESSOAS, registro=None)
     assert isinstance(dialogo._widgets["FOTO"], WidgetFoto)
     assert "FOTO_MIME" not in dialogo._widgets  # nunca vira campo proprio
+    assert "FOTO_ORIGINAL" not in dialogo._widgets
+    assert "FOTO_ORIGINAL_MIME" not in dialogo._widgets
 
     dialogo._ao_salvar()
     assert dialogo.resultado()["FOTO"] is None
@@ -667,6 +689,29 @@ def test_record_form_dialog_foto_editar_registro_com_foto_preserva_ao_salvar(ban
     assert dialogo.resultado()["FOTO_MIME"] == "image/png"
 
 
+def test_record_form_dialog_foto_original_preservado_ao_editar_sem_mexer_na_foto(banco_com_dados):
+    """FOTO_ORIGINAL (o arquivo sem recorte/alteracao) carrega do banco pro
+    widget e volta intacto ao salvar, sem precisar mexer na foto."""
+    dados_recorte = _png_bytes_teste(banco_com_dados)
+    dados_originais = b"bytes do arquivo original, sem processar"
+
+    id_pessoa = records.create_record(
+        banco_com_dados, PESSOAS,
+        {"NOME": "Fulano", "FOTO": dados_recorte, "FOTO_MIME": "image/png",
+         "FOTO_ORIGINAL": dados_originais, "FOTO_ORIGINAL_MIME": "image/jpeg"},
+    )
+    pessoa = records.get_record(banco_com_dados, PESSOAS, id_pessoa)
+
+    dialogo = RecordFormDialog(banco_com_dados, PESSOAS, registro=pessoa)
+    widget_foto = dialogo._widgets["FOTO"]
+    assert widget_foto.foto_original_bytes() == dados_originais
+    assert widget_foto.foto_original_mime() == "image/jpeg"
+
+    dialogo._ao_salvar()
+    assert dialogo.resultado()["FOTO_ORIGINAL"] == dados_originais
+    assert dialogo.resultado()["FOTO_ORIGINAL_MIME"] == "image/jpeg"
+
+
 def test_record_form_dialog_foto_remover_limpa_ao_salvar(banco_com_dados):
     from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
     from PySide6.QtGui import QPixmap
@@ -688,6 +733,8 @@ def test_record_form_dialog_foto_remover_limpa_ao_salvar(banco_com_dados):
 
     assert dialogo.resultado()["FOTO"] is None
     assert dialogo.resultado()["FOTO_MIME"] is None
+    assert dialogo.resultado()["FOTO_ORIGINAL"] is None
+    assert dialogo.resultado()["FOTO_ORIGINAL_MIME"] is None
 
 
 def test_widget_foto_escolher_imagem_abre_ajuste_e_usa_recorte(qapp, monkeypatch, tmp_path):
@@ -720,6 +767,11 @@ def test_widget_foto_escolher_imagem_abre_ajuste_e_usa_recorte(qapp, monkeypatch
     pixmap_salvo.loadFromData(widget.foto_bytes())
     assert pixmap_salvo.width() == 320
     assert pixmap_salvo.height() == 320
+
+    # o arquivo ORIGINAL escolhido tambem fica guardado, intacto (byte a
+    # byte, nao so o recorte) -- e o que sai quando alguem baixar depois.
+    assert widget.foto_original_bytes() == caminho.read_bytes()
+    assert widget.foto_original_mime() == "image/png"
 
 
 def test_widget_foto_cancelar_ajuste_mantem_foto_anterior(qapp, monkeypatch, tmp_path):
@@ -757,7 +809,8 @@ def test_widget_foto_botao_editar_so_habilitado_quando_ja_tem_foto(qapp):
 
 def test_widget_foto_editar_reabre_ajuste_na_foto_atual(qapp, monkeypatch):
     """"Editar foto..." reabre o mesmo editor de arrastar/zoom/girar, mas
-    carregando a foto JA SALVA (sem precisar escolher o arquivo de novo)."""
+    carregando a foto JA SALVA (sem precisar escolher o arquivo de novo) --
+    aqui sem FOTO_ORIGINAL (registro antigo), entao usa o recorte mesmo."""
     from PySide6.QtGui import QColor, QPixmap
     from PySide6.QtWidgets import QDialog
 
@@ -788,6 +841,54 @@ def test_widget_foto_editar_reabre_ajuste_na_foto_atual(qapp, monkeypatch):
     pixmap_salvo = QPixmap()
     pixmap_salvo.loadFromData(widget.foto_bytes())
     assert pixmap_salvo.toImage() == novo_recorte.toImage()
+
+
+def test_widget_foto_editar_usa_original_quando_existe(qapp, monkeypatch):
+    """Quando o registro TEM o arquivo original guardado, reabrir o editor
+    parte dele (nao do recorte ja cortado) -- senao reeditar iria perder
+    mais qualidade a cada vez, recortando um recorte de um recorte."""
+    from PySide6.QtGui import QColor, QPixmap
+    from PySide6.QtWidgets import QDialog
+
+    from ui.ajustar_foto_dialog import AjustarFotoDialog
+    from ui.widgets import WidgetFoto
+
+    foto_atual = _png_bytes_teste(qapp)  # o recorte, ja circular-pronto
+    original = QPixmap(800, 600)
+    original.fill(QColor("blue"))
+    dados_originais = _pixmap_para_bytes(original)
+
+    novo_recorte = QPixmap(320, 320)
+    novo_recorte.fill(QColor("green"))
+
+    pixmaps_recebidos = []
+
+    def _exec_falso(self):
+        pixmaps_recebidos.append(self.palco._imagem)
+        return QDialog.Accepted
+
+    monkeypatch.setattr(AjustarFotoDialog, "exec", _exec_falso)
+    monkeypatch.setattr(AjustarFotoDialog, "resultado", lambda self: novo_recorte)
+
+    widget = WidgetFoto("Fulano", foto_atual, dados_originais, "image/png")
+    widget._editar_foto()
+
+    assert pixmaps_recebidos[0].toImage() == original.toImage()
+    # editar a partir do original nao muda o original guardado -- so o
+    # recorte exibido como avatar.
+    assert widget.foto_original_bytes() == dados_originais
+
+
+def test_widget_foto_remover_limpa_original_tambem(qapp):
+    from ui.widgets import WidgetFoto
+
+    foto_atual = _png_bytes_teste(qapp)
+    widget = WidgetFoto("Fulano", foto_atual, foto_atual, "image/png")
+    widget._remover_foto()
+
+    assert widget.foto_bytes() is None
+    assert widget.foto_original_bytes() is None
+    assert widget.foto_original_mime() is None
 
 
 def test_widget_foto_editar_sem_foto_nao_faz_nada(qapp, monkeypatch):
@@ -1176,6 +1277,8 @@ def test_settings_dialog_campo_extra_nao_oferece_foto(banco_com_dados):
     escolhidos = set(_dados_lista(dialogo.lista_campos_escolhidos))
     assert "FOTO" not in disponiveis | escolhidos
     assert "FOTO_MIME" not in disponiveis | escolhidos
+    assert "FOTO_ORIGINAL" not in disponiveis | escolhidos
+    assert "FOTO_ORIGINAL_MIME" not in disponiveis | escolhidos
 
 
 def _esvaziar_escolhidos(dialogo) -> None:
@@ -1272,6 +1375,8 @@ def test_dashboard_view_filtro_de_campo_nao_oferece_foto(banco_com_dados):
     campos = {campo for _, campo in view._opcoes_de_campo_painel()}
     assert "FOTO" not in campos
     assert "FOTO_MIME" not in campos
+    assert "FOTO_ORIGINAL" not in campos
+    assert "FOTO_ORIGINAL_MIME" not in campos
 
 
 def test_dashboard_view_aniversariante_com_foto_mostra_avatar_com_foto(banco_com_dados):

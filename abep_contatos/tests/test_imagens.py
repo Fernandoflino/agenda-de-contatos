@@ -49,6 +49,72 @@ def test_nome_arquivo_foto_sanitiza_caracteres_invalidos():
     assert nome.endswith(".png")
 
 
+def test_nome_arquivo_foto_usa_extensao_do_mime():
+    registro = {"NOME": "Fulano"}
+    assert imagens.nome_arquivo_foto(registro, mime="image/jpeg") == "Fulano.jpg"
+    assert imagens.nome_arquivo_foto(registro, mime="image/png") == "Fulano.png"
+    assert imagens.nome_arquivo_foto(registro, mime="image/bmp") == "Fulano.bmp"
+
+
+def test_nome_arquivo_foto_mime_desconhecido_cai_pro_png():
+    registro = {"NOME": "Fulano"}
+    assert imagens.nome_arquivo_foto(registro, mime="application/octet-stream") == "Fulano.png"
+    assert imagens.nome_arquivo_foto(registro, mime=None) == "Fulano.png"
+
+
+# ============================================================================
+# ler_bytes_originais
+# ============================================================================
+
+def test_ler_bytes_originais_devolve_bytes_crus_e_mime(qapp, tmp_path):
+    dados = _png_bytes(qapp)
+    caminho = tmp_path / "foto.png"
+    caminho.write_bytes(dados)
+
+    lidos, mime = imagens.ler_bytes_originais(str(caminho))
+    assert lidos == dados  # byte a byte, sem nenhum reprocessamento
+    assert mime == "image/png"
+
+
+def test_ler_bytes_originais_reconhece_jpeg(qapp, tmp_path):
+    caminho = tmp_path / "foto.jpg"
+    caminho.write_bytes(b"conteudo qualquer")  # so o nome do arquivo importa aqui
+
+    _, mime = imagens.ler_bytes_originais(str(caminho))
+    assert mime == "image/jpeg"
+
+
+# ============================================================================
+# bytes_originais_do_registro
+# ============================================================================
+
+def test_bytes_originais_do_registro_prefere_foto_original(qapp):
+    dados_originais = _png_bytes(qapp, cor=Qt.blue)
+    dados_recorte = _png_bytes(qapp, cor=Qt.red)
+    registro = {
+        "FOTO": dados_recorte,
+        "FOTO_MIME": "image/png",
+        "FOTO_ORIGINAL": dados_originais,
+        "FOTO_ORIGINAL_MIME": "image/jpeg",
+    }
+    dados, mime = imagens.bytes_originais_do_registro(registro)
+    assert dados == dados_originais
+    assert mime == "image/jpeg"
+
+
+def test_bytes_originais_do_registro_cai_pro_recorte_em_registro_antigo(qapp):
+    """Registro salvo ANTES do arquivo original ser guardado separado --
+    so tem FOTO/FOTO_MIME, sem FOTO_ORIGINAL nenhum."""
+    dados = _png_bytes(qapp)
+    registro = {"FOTO": dados, "FOTO_MIME": "image/png"}
+    resultado = imagens.bytes_originais_do_registro(registro)
+    assert resultado == (dados, "image/png")
+
+
+def test_bytes_originais_do_registro_sem_foto_nenhuma_devolve_none():
+    assert imagens.bytes_originais_do_registro({"NOME": "Sem Foto"}) is None
+
+
 # ============================================================================
 # redimensionar_para_bytes_png
 # ============================================================================
@@ -147,6 +213,28 @@ def test_salvar_fotos_via_dialogo_varias_fotos_grava_zip(qapp, monkeypatch, tmp_
         assert "Bruno - RJ.png" in nomes
         assert len(nomes) == 2
         assert zf.read("Ana - TO.png") == dados_a
+
+
+def test_salvar_fotos_via_dialogo_baixa_o_original_nao_o_recorte(qapp, monkeypatch, tmp_path):
+    """O download tem que ser o arquivo ORIGINAL (sem recorte/alteracao),
+    nao o recorte circular usado so pra mostrar o avatar na tela."""
+    from PySide6.QtWidgets import QFileDialog, QWidget
+
+    dados_originais = b"bytes do arquivo original, sem processar"
+    dados_recorte = _png_bytes(qapp)
+    destino = tmp_path / "saida.jpg"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(destino), "")))
+
+    registro = {
+        "NOME": "Fulano",
+        "FOTO": dados_recorte,
+        "FOTO_MIME": "image/png",
+        "FOTO_ORIGINAL": dados_originais,
+        "FOTO_ORIGINAL_MIME": "image/jpeg",
+    }
+    imagens.salvar_fotos_via_dialogo(QWidget(), [registro])
+
+    assert destino.read_bytes() == dados_originais
 
 
 def test_salvar_fotos_via_dialogo_nomes_duplicados_nao_colidem(qapp, monkeypatch, tmp_path):

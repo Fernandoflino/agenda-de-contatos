@@ -42,6 +42,8 @@ def test_colunas_exportaveis_nao_inclui_foto(conn):
     colunas, _ = exporter.colunas_exportaveis(conn, "PESSOAS")
     assert "FOTO" not in colunas
     assert "FOTO_MIME" not in colunas
+    assert "FOTO_ORIGINAL" not in colunas
+    assert "FOTO_ORIGINAL_MIME" not in colunas
 
 
 def test_exportacao_simples_mostra_empresa_em_vez_de_id(conn):

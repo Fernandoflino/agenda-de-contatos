@@ -54,7 +54,7 @@ from PySide6.QtWidgets import (
 )
 
 from db import anotacoes, categorias, log, preferencias, records, settings
-from db.schema import PESSOAS
+from db.schema import CAMPOS_FOTO_OCULTOS, PESSOAS
 from db.tables import get_column_order
 from ui import field_types, icons, imagens
 from ui.avatar import AvatarClicavel
@@ -593,7 +593,7 @@ class ListaRegistrosView(QWidget):
         empresa nao faria sentido nenhum pra quem esta usando o programa."""
         opcoes = []
         for coluna in colunas:
-            if coluna in ("FOTO", "FOTO_MIME"):
+            if coluna in CAMPOS_FOTO_OCULTOS:
                 continue  # nao faz sentido "filtrar por foto" digitando texto
             if coluna == "ID_EMPRESA":
                 opcoes.append(("Empresa", "_EMPRESA_BUSCA"))
@@ -1190,7 +1190,7 @@ class ListaRegistrosView(QWidget):
 
         linha = 0
         for campo in colunas:
-            if campo in ("ID", "ID_EMPRESA", "FOTO", "FOTO_MIME") or not registro.get(campo):
+            if campo in {"ID", "ID_EMPRESA"} | CAMPOS_FOTO_OCULTOS or not registro.get(campo):
                 continue
             rotulo = QLabel(field_types.rotulo_amigavel(campo))
             rotulo.setProperty("papel", "subtitulo")

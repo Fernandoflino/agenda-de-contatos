@@ -9,6 +9,7 @@ fazer inteiramente com Qt, sem precisar de uma dependencia nova.
 """
 from __future__ import annotations
 
+import mimetypes
 import re
 import zipfile
 
@@ -19,6 +20,27 @@ from PySide6.QtWidgets import QFileDialog, QWidget
 from ui.dialogs import mostrar_erro, mostrar_info
 
 _CARACTERES_INVALIDOS_ARQUIVO = re.compile(r'[<>:"/\\|?*]')
+
+# Extensao de arquivo pra cada mime type aceito na hora de escolher uma
+# foto (ver o filtro do QFileDialog em ui/widgets.py::WidgetFoto) -- usado
+# pra baixar o arquivo ORIGINAL com a extensao certa (ver nome_arquivo_foto).
+_EXTENSOES_POR_MIME = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/bmp": ".bmp",
+}
+
+
+def ler_bytes_originais(caminho_imagem: str) -> tuple[bytes, str]:
+    """Le um arquivo de imagem TAL COMO ESTA no disco -- bytes crus, sem
+    nenhum processamento -- mais o mime type dele (pelo nome do arquivo).
+    Usado pra guardar a foto ORIGINAL de um contato, pra poder devolver
+    depois exatamente igual (sem perder qualidade nem enquadramento) quando
+    alguem BAIXAR essa foto."""
+    with open(caminho_imagem, "rb") as arquivo:
+        dados = arquivo.read()
+    mime, _ = mimetypes.guess_type(caminho_imagem)
+    return dados, mime or "application/octet-stream"
 
 
 def pixmap_para_bytes_png(pixmap: QPixmap, tamanho_max: int) -> bytes:
@@ -72,11 +94,13 @@ def pixmap_circular(dados_png: bytes, tamanho: int) -> QPixmap | None:
     return resultado
 
 
-def nome_arquivo_foto(registro: dict) -> str:
+def nome_arquivo_foto(registro: dict, mime: str | None = None) -> str:
     """Monta o nome de arquivo padrao pra baixar a foto de um contato:
-    "{Nome} - {SIGLA_EMPRESA}-{UF}.png" -- se faltar a sigla da empresa ou a
+    "{Nome} - {SIGLA_EMPRESA}-{UF}.ext" -- se faltar a sigla da empresa ou a
     UF (empresa sem essas colunas preenchidas), omite so esse pedaco em vez
-    de escrever "None" no nome."""
+    de escrever "None" no nome. A extensao vem do `mime` informado (o mime
+    type do arquivo ORIGINAL) -- sem isso (registro antigo, de antes do
+    arquivo original ser guardado separado), cai em ".png"."""
     nome = str(registro.get("NOME") or "Sem nome").strip()
     sigla_empresa = str(registro.get("_EMPRESA_SIGLA_EMPRESA") or "").strip()
     uf = str(registro.get("_EMPRESA_SIGLA") or "").strip()
@@ -84,7 +108,23 @@ def nome_arquivo_foto(registro: dict) -> str:
     sufixo = "-".join(p for p in (sigla_empresa, uf) if p)
     base = f"{nome} - {sufixo}" if sufixo else nome
     base = _CARACTERES_INVALIDOS_ARQUIVO.sub(" ", base).strip()
-    return f"{base}.png"
+    extensao = _EXTENSOES_POR_MIME.get(mime, ".png")
+    return f"{base}{extensao}"
+
+
+def bytes_originais_do_registro(registro: dict) -> tuple[bytes, str] | None:
+    """A foto ORIGINAL (sem recorte/redimensionamento) de um registro, pra
+    baixar -- usa FOTO_ORIGINAL quando existir; em registros salvos ANTES
+    dessa coluna existir, cai pro recorte (FOTO) mesmo, que e o unico dado
+    que sobrou pra esses. Devolve None se o registro nao tiver foto
+    nenhuma."""
+    original = registro.get("FOTO_ORIGINAL")
+    if original:
+        return original, registro.get("FOTO_ORIGINAL_MIME") or "application/octet-stream"
+    foto = registro.get("FOTO")
+    if foto:
+        return foto, registro.get("FOTO_MIME") or "image/png"
+    return None
 
 
 def _evitar_duplicata(nome: str, usados: dict[str, int]) -> str:
@@ -97,22 +137,32 @@ def _evitar_duplicata(nome: str, usados: dict[str, int]) -> str:
 
 
 def salvar_fotos_via_dialogo(parent: QWidget, registros: list[dict]) -> None:
-    """Baixa as fotos dos `registros` informados que TEM foto -- um arquivo
-    .png direto se for so 1, ou um .zip se for mais de 1. Usado tanto pela
-    acao em massa "Baixar fotos" (so os selecionados) quanto pelo botao de
-    fotos na tela de Exportacao (todas, ou por categoria)."""
-    com_foto = [r for r in registros if r.get("FOTO")]
+    """Baixa as fotos dos `registros` informados que TEM foto -- SEMPRE o
+    arquivo ORIGINAL (sem nenhum recorte/redimensionamento, ver
+    bytes_originais_do_registro), um arquivo direto se for so 1 ou um .zip
+    se for mais de 1. Usado tanto pela acao em massa "Baixar fotos" (so os
+    selecionados) quanto pelo botao de fotos na tela de Exportacao (todas,
+    ou por categoria)."""
+    com_foto = []
+    for registro in registros:
+        resultado = bytes_originais_do_registro(registro)
+        if resultado is not None:
+            dados, mime = resultado
+            com_foto.append((registro, dados, mime))
     if not com_foto:
         mostrar_erro(parent, "Nenhum dos registros tem foto cadastrada.")
         return
 
     usados: dict[str, int] = {}
-    arquivos = [(_evitar_duplicata(nome_arquivo_foto(r), usados), r["FOTO"]) for r in com_foto]
+    arquivos = [(_evitar_duplicata(nome_arquivo_foto(r, mime), usados), dados) for r, dados, mime in com_foto]
 
     try:
         if len(arquivos) == 1:
             nome_sugerido, dados = arquivos[0]
-            caminho, _ = QFileDialog.getSaveFileName(parent, "Salvar foto como", nome_sugerido, "Imagem PNG (*.png)")
+            extensao = nome_sugerido[nome_sugerido.rfind(".") :]
+            caminho, _ = QFileDialog.getSaveFileName(
+                parent, "Salvar foto como", nome_sugerido, f"Imagem (*{extensao})"
+            )
             if not caminho:
                 return
             with open(caminho, "wb") as arquivo:

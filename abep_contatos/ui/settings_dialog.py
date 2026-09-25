@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from db import settings
+from db.schema import CAMPOS_FOTO_OCULTOS
 from db.tables import get_column_order, list_data_sheets
 from ui import field_types
 from ui.categorias_dialog import CategoriasDialog
@@ -337,7 +338,7 @@ class SettingsDialog(QDialog):
         pedacos da empresa (UF/sigla/nome) como 3 escolhas separadas aqui."""
         opcoes = [("Empresa", _SENTINELA_EMPRESA)] if "ID_EMPRESA" in colunas else []
         for coluna in colunas:
-            if coluna in ("ID", "ID_EMPRESA", "FOTO", "FOTO_MIME"):
+            if coluna in {"ID", "ID_EMPRESA"} | CAMPOS_FOTO_OCULTOS:
                 continue
             opcoes.append((field_types.rotulo_amigavel(coluna), coluna))
         return opcoes

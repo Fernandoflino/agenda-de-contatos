@@ -11,7 +11,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from ui.dialogs import mostrar_erro
-from ui.imagens import nome_arquivo_foto
+from ui.imagens import bytes_originais_do_registro, nome_arquivo_foto
 from ui.theme import marcar_variante
 from ui.window_utils import preparar_janela
 
@@ -57,12 +57,19 @@ class FotoPopupDialog(QDialog):
         layout.addLayout(botoes)
 
     def _baixar(self) -> None:
-        nome_sugerido = nome_arquivo_foto(self.registro)
-        caminho, _ = QFileDialog.getSaveFileName(self, "Salvar foto como", nome_sugerido, "Imagem PNG (*.png)")
+        # Baixa sempre o arquivo ORIGINAL (sem o recorte/enquadramento que
+        # so vale pra exibir o avatar) -- ver imagens.bytes_originais_do_registro.
+        resultado = bytes_originais_do_registro(self.registro)
+        if resultado is None:
+            return
+        dados, mime = resultado
+        nome_sugerido = nome_arquivo_foto(self.registro, mime)
+        extensao = nome_sugerido[nome_sugerido.rfind(".") :]
+        caminho, _ = QFileDialog.getSaveFileName(self, "Salvar foto como", nome_sugerido, f"Imagem (*{extensao})")
         if not caminho:
             return
         try:
             with open(caminho, "wb") as arquivo:
-                arquivo.write(self.registro.get("FOTO") or b"")
+                arquivo.write(dados)
         except OSError as erro:
             mostrar_erro(self, str(erro))

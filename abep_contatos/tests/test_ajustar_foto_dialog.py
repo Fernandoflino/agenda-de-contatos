@@ -27,9 +27,22 @@ def test_zoom_minimo_para_imagem_vertical(qapp):
 def test_definir_imagem_comeca_com_zoom_minimo_e_centralizado(qapp):
     palco = _PalcoAjusteFoto(_pixmap(800, 400))
     assert palco.zoom_atual() == palco.zoom_minimo()
+    # No zoom minimo, a area visivel e o lado MENOR da imagem original
+    # (400x400) -- o recorte tem que sair nessa resolucao NATIVA, sem
+    # reamostrar pra baixo pro tamanho do palco (320x320).
     resultado = palco.resultado()
-    assert resultado.width() == _TAMANHO_PALCO
-    assert resultado.height() == _TAMANHO_PALCO
+    assert resultado.width() == 400
+    assert resultado.height() == 400
+
+
+def test_resultado_nao_perde_qualidade_de_imagem_grande(qapp):
+    """Regressao: o recorte nao pode ficar limitado ao tamanho do palco
+    (320x320) -- uma foto grande, mesmo so exibida pequena no editor,
+    precisa manter a resolucao real na hora de gerar o recorte."""
+    palco = _PalcoAjusteFoto(_pixmap(4000, 3000))
+    resultado = palco.resultado()
+    assert resultado.width() == 3000  # lado menor da foto original, intacto
+    assert resultado.height() == 3000
 
 
 def test_girar_troca_largura_e_altura_e_reseta_zoom(qapp):
@@ -107,5 +120,4 @@ def test_ajustar_foto_dialog_slider_ajusta_zoom_do_palco(qapp):
 def test_ajustar_foto_dialog_resultado_e_quadrado(qapp):
     dialogo = AjustarFotoDialog(_pixmap(800, 400))
     resultado = dialogo.resultado()
-    assert resultado.width() == _TAMANHO_PALCO
-    assert resultado.height() == _TAMANHO_PALCO
+    assert resultado.width() == resultado.height()

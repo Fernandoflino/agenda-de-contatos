@@ -27,7 +27,7 @@ import sqlite3
 import openpyxl
 
 from .records import filtrar_registros, get_records, resolver_empresas
-from .schema import EMPRESAS
+from .schema import CAMPOS_FOTO_OCULTOS, EMPRESAS
 from .tables import get_column_order, get_schema
 
 # ID_EMPRESA e um numero interno do banco -- nao significa nada num arquivo
@@ -78,7 +78,7 @@ def colunas_exportaveis(conn: sqlite3.Connection, tabela: str) -> tuple[list[str
                         disponiveis.append(nome_coluna)
                         mapa_fonte[nome_coluna] = campo_fonte
             continue
-        if coluna in ("FOTO", "FOTO_MIME"):
+        if coluna in CAMPOS_FOTO_OCULTOS:
             # Foto e um BLOB -- nao faz sentido nenhum numa celula de
             # planilha (viraria bytes crus ou quebraria o arquivo gerado).
             continue

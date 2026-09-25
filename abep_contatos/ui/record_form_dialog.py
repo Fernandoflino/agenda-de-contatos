@@ -87,9 +87,10 @@ class RecordFormDialog(QDialog):
         # ela e tratada como um campo especial "SENHA" mais abaixo.
         if self.tabela == USUARIOS:
             colunas = [c for c in colunas if c != "SENHA_HASH"]
-        # FOTO_MIME nunca aparece como campo proprio -- so acompanha FOTO
-        # (que ganha um widget especial de upload/preview mais abaixo).
-        colunas = [c for c in colunas if c != "FOTO_MIME"]
+        # FOTO_MIME/FOTO_ORIGINAL/FOTO_ORIGINAL_MIME nunca aparecem como
+        # campo proprio -- so acompanham FOTO (que ganha um widget especial
+        # de upload/preview mais abaixo).
+        colunas = [c for c in colunas if c not in ("FOTO_MIME", "FOTO_ORIGINAL", "FOTO_ORIGINAL_MIME")]
         # Uma lista de campos pode ser mais alta do que a tela -- por isso o
         # formulario fica dentro de uma area com barra de rolagem.
         area_rolavel = QScrollArea(self)
@@ -115,7 +116,12 @@ class RecordFormDialog(QDialog):
                 continue
 
             if coluna == "FOTO" and self.tabela == PESSOAS:
-                widget_foto = WidgetFoto(self.registro.get("NOME") or "", self.registro.get("FOTO"))
+                widget_foto = WidgetFoto(
+                    self.registro.get("NOME") or "",
+                    self.registro.get("FOTO"),
+                    self.registro.get("FOTO_ORIGINAL"),
+                    self.registro.get("FOTO_ORIGINAL_MIME"),
+                )
                 rotulo_foto = QLabel("Foto")
                 form.addRow(rotulo_foto, widget_foto)
                 self._widgets[coluna] = widget_foto
@@ -331,11 +337,15 @@ class RecordFormDialog(QDialog):
         dados = {}
         for coluna, widget in self._widgets.items():
             if coluna == "FOTO":
-                # Widget de foto preenche 2 colunas de uma vez (a imagem e o
-                # mime type) -- nao se encaixa no dispatch de 1 coluna->1
-                # widget que _valor_do_widget faz pro resto do formulario.
+                # Widget de foto preenche 4 colunas de uma vez (o recorte
+                # exibido como avatar + o arquivo original intacto, cada um
+                # com seu mime type) -- nao se encaixa no dispatch de 1
+                # coluna->1 widget que _valor_do_widget faz pro resto do
+                # formulario.
                 dados["FOTO"] = widget.foto_bytes()
                 dados["FOTO_MIME"] = widget.foto_mime()
+                dados["FOTO_ORIGINAL"] = widget.foto_original_bytes()
+                dados["FOTO_ORIGINAL_MIME"] = widget.foto_original_mime()
                 continue
             valor = self._valor_do_widget(coluna, widget)
             if coluna == "SENHA" and not valor:

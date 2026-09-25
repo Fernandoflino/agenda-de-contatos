@@ -40,6 +40,13 @@ USUARIOS = "USUARIOS"                   # quem pode fazer login no programa
 EMPRESAS = "EMPRESAS"                   # as empresas associadas (a tabela "mae")
 PESSOAS = "PESSOAS"                     # os contatos (presidentes, diretores etc.), ligados a uma empresa
 
+# As 4 colunas de foto de PESSOAS (ver comentario acima de _DDL_PESSOAS) sao
+# BLOB/metadados internos -- nunca fazem sentido como "campo de texto"
+# generico (exportacao em planilha, aba de informacoes, filtro por campo,
+# configuracao de "campos extra" da lista). Usado por todos esses lugares
+# pra nao precisar repetir essa lista em cada um.
+CAMPOS_FOTO_OCULTOS = {"FOTO", "FOTO_MIME", "FOTO_ORIGINAL", "FOTO_ORIGINAL_MIME"}
+
 # Todas as tabelas internas do programa -- a tela "Gerenciar tabelas" nunca
 # deve mostrar essas pro usuario, so as tabelas de dados de verdade.
 RESERVED_TABLES = {
@@ -183,6 +190,13 @@ CREATE TABLE "{EMPRESAS}" (
 # "Diretor Adm. Financeiro") -- e o que a planilha antiga separava em ABAS
 # diferentes, e o campo usado pra "mala direta" (juntar os contatos de uma
 # mesma empresa numa linha so, um por categoria -- ver db/exporter.py).
+#
+# FOTO/FOTO_MIME guardam o recorte circular (enquadrado/girado pelo usuario
+# em ui/ajustar_foto_dialog.py) usado SO pra exibir o avatar na tela.
+# FOTO_ORIGINAL/FOTO_ORIGINAL_MIME guardam o arquivo exatamente como foi
+# escolhido (sem nenhum recorte/redimensionamento) -- e o que e devolvido
+# quando alguem BAIXA a foto de um contato (ver ui/imagens.py), pra nunca
+# perder qualidade nem enquadramento do arquivo original.
 _DDL_PESSOAS = f"""
 CREATE TABLE "{PESSOAS}" (
     "ID" INTEGER PRIMARY KEY,
@@ -203,7 +217,9 @@ CREATE TABLE "{PESSOAS}" (
     "CP1" TEXT, "CP2" TEXT, "CP3" TEXT, "CP4" TEXT, "CP5" TEXT,
     "CP6" TEXT, "CP7" TEXT, "CP8" TEXT, "CP9" TEXT,
     "FOTO" BLOB,
-    "FOTO_MIME" TEXT
+    "FOTO_MIME" TEXT,
+    "FOTO_ORIGINAL" BLOB,
+    "FOTO_ORIGINAL_MIME" TEXT
 );
 """
 
@@ -482,6 +498,13 @@ def migrar_schema_se_necessario(conn) -> None:
             # normal; ninguem tinha foto cadastrada antes dessa versao).
             conn.execute(f'ALTER TABLE "{PESSOAS}" ADD COLUMN "FOTO" BLOB')
             conn.execute(f'ALTER TABLE "{PESSOAS}" ADD COLUMN "FOTO_MIME" TEXT')
+            mudou = True
+        if "FOTO_ORIGINAL" not in colunas_pessoas_atuais:
+            # Bancos criados antes de existir o arquivo original separado
+            # do recorte (ver comentario acima de _DDL_PESSOAS) -- idem,
+            # comeca vazio pra todo mundo.
+            conn.execute(f'ALTER TABLE "{PESSOAS}" ADD COLUMN "FOTO_ORIGINAL" BLOB')
+            conn.execute(f'ALTER TABLE "{PESSOAS}" ADD COLUMN "FOTO_ORIGINAL_MIME" TEXT')
             mudou = True
 
     if APP_LIXEIRA_REGISTROS not in tabelas_existentes:

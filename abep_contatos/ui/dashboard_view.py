@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 
 from db import categorias, dashboard, preferencias, records
 from db.records import resolver_empresas
-from db.schema import PESSOAS
+from db.schema import CAMPOS_FOTO_OCULTOS, PESSOAS
 from db.tables import get_column_order
 from ui import field_types, icons
 from ui.avatar import criar_avatar
@@ -215,7 +215,7 @@ class DashboardView(QWidget):
         colunas = [c for c in get_column_order(self.conn, PESSOAS) if c != "ID"]
         opcoes = []
         for coluna in colunas:
-            if coluna in ("FOTO", "FOTO_MIME"):
+            if coluna in CAMPOS_FOTO_OCULTOS:
                 continue  # nao faz sentido "filtrar por foto" digitando texto
             if coluna == "ID_EMPRESA":
                 opcoes.append(("Empresa", "_EMPRESA_BUSCA"))

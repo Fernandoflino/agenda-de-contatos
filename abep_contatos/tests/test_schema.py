@@ -108,6 +108,8 @@ def test_migracao_cria_colunas_de_foto():
     colunas = {row[1] for row in conn.execute('PRAGMA table_info("PESSOAS")')}
     assert "FOTO" in colunas
     assert "FOTO_MIME" in colunas
+    assert "FOTO_ORIGINAL" in colunas
+    assert "FOTO_ORIGINAL_MIME" in colunas
     conn.close()
 
 

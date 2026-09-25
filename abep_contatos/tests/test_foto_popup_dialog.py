@@ -32,3 +32,27 @@ def test_foto_popup_dialog_baixar_grava_arquivo(qapp, monkeypatch, tmp_path):
     dialogo._baixar()
 
     assert destino.read_bytes() == dados
+
+
+def test_foto_popup_dialog_baixar_usa_original_quando_existe(qapp, monkeypatch, tmp_path):
+    """O botao "Baixar..." tem que devolver o arquivo ORIGINAL (sem o
+    recorte/enquadramento usado so pra exibir o avatar)."""
+    from PySide6.QtWidgets import QFileDialog
+
+    dados_recorte = _png_bytes(qapp)
+    dados_originais = b"bytes do arquivo original, sem processar"
+    registro = {
+        "NOME": "Fulano de Tal",
+        "_EMPRESA_SIGLA": "TO",
+        "FOTO": dados_recorte,
+        "FOTO_MIME": "image/png",
+        "FOTO_ORIGINAL": dados_originais,
+        "FOTO_ORIGINAL_MIME": "image/jpeg",
+    }
+    dialogo = FotoPopupDialog(registro)
+
+    destino = tmp_path / "saida.jpg"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(destino), "")))
+    dialogo._baixar()
+
+    assert destino.read_bytes() == dados_originais
