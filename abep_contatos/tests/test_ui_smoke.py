@@ -744,6 +744,66 @@ def test_widget_foto_cancelar_ajuste_mantem_foto_anterior(qapp, monkeypatch, tmp
     assert widget.foto_bytes() == foto_anterior
 
 
+def test_widget_foto_botao_editar_so_habilitado_quando_ja_tem_foto(qapp):
+    from ui.widgets import WidgetFoto
+
+    sem_foto = WidgetFoto("Fulano", None)
+    assert not sem_foto._botao_editar.isEnabled()
+
+    dados = _png_bytes_teste(qapp)
+    com_foto = WidgetFoto("Fulano", dados)
+    assert com_foto._botao_editar.isEnabled()
+
+
+def test_widget_foto_editar_reabre_ajuste_na_foto_atual(qapp, monkeypatch):
+    """"Editar foto..." reabre o mesmo editor de arrastar/zoom/girar, mas
+    carregando a foto JA SALVA (sem precisar escolher o arquivo de novo)."""
+    from PySide6.QtGui import QColor, QPixmap
+    from PySide6.QtWidgets import QDialog
+
+    from ui.ajustar_foto_dialog import AjustarFotoDialog
+    from ui.widgets import WidgetFoto
+
+    foto_atual = _png_bytes_teste(qapp)
+    novo_recorte = QPixmap(320, 320)
+    novo_recorte.fill(QColor("green"))
+
+    pixmaps_recebidos = []
+
+    def _exec_falso(self):
+        pixmaps_recebidos.append(self.palco._imagem)
+        return QDialog.Accepted
+
+    monkeypatch.setattr(AjustarFotoDialog, "exec", _exec_falso)
+    monkeypatch.setattr(AjustarFotoDialog, "resultado", lambda self: novo_recorte)
+
+    widget = WidgetFoto("Fulano", foto_atual)
+    widget._editar_foto()
+
+    # o editor abriu carregando a foto que JA estava salva (nao pediu arquivo)
+    pixmap_original_carregado = QPixmap()
+    pixmap_original_carregado.loadFromData(foto_atual)
+    assert pixmaps_recebidos[0].toImage() == pixmap_original_carregado.toImage()
+
+    pixmap_salvo = QPixmap()
+    pixmap_salvo.loadFromData(widget.foto_bytes())
+    assert pixmap_salvo.toImage() == novo_recorte.toImage()
+
+
+def test_widget_foto_editar_sem_foto_nao_faz_nada(qapp, monkeypatch):
+    from ui.ajustar_foto_dialog import AjustarFotoDialog
+    from ui.widgets import WidgetFoto
+
+    chamou = []
+    monkeypatch.setattr(AjustarFotoDialog, "__init__", lambda self, *a, **k: chamou.append(True))
+
+    widget = WidgetFoto("Fulano", None)
+    widget._editar_foto()
+
+    assert chamou == []
+    assert widget.foto_bytes() is None
+
+
 def test_record_form_dialog_categorias_respeita_ordem_configurada_das_colunas(qapp, conn):
     """Regressao: a linha "Categorias" (selecao multipla) sempre ia parar no
     FIM do formulario, ignorando a posicao que o usuario configurou pra

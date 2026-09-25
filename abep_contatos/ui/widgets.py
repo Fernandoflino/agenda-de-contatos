@@ -198,8 +198,9 @@ class FiltroMultiplaEscolha(QToolButton):
 class WidgetFoto(QWidget):
     """Campo de upload de foto no formulario de contato: preview circular
     (a foto atual, ou o avatar de iniciais de sempre enquanto nao tem foto)
-    + botoes "Escolher imagem..." e "Remover foto". Mesmo padrao ja usado
-    pro logotipo do painel (ui/settings_dialog.py), so que reutilizavel."""
+    + botoes "Escolher imagem...", "Editar foto..." e "Remover foto". Mesmo
+    padrao ja usado pro logotipo do painel (ui/settings_dialog.py), so que
+    reutilizavel."""
 
     _TAMANHO_PREVIEW = 72
 
@@ -220,6 +221,9 @@ class WidgetFoto(QWidget):
         botao_escolher = QPushButton("Escolher imagem...")
         botao_escolher.clicked.connect(self._escolher_imagem)
         botoes.addWidget(botao_escolher)
+        self._botao_editar = QPushButton("Editar foto...")
+        self._botao_editar.clicked.connect(self._editar_foto)
+        botoes.addWidget(self._botao_editar)
         self._botao_remover = QPushButton("Remover foto")
         self._botao_remover.clicked.connect(self._remover_foto)
         botoes.addWidget(self._botao_remover)
@@ -236,6 +240,7 @@ class WidgetFoto(QWidget):
         avatar = criar_avatar(self._nome_pessoa, tamanho=self._TAMANHO_PREVIEW, foto_bytes=self._foto_bytes)
         self._rotulo_preview.setFixedSize(self._TAMANHO_PREVIEW, self._TAMANHO_PREVIEW)
         self._rotulo_preview.setPixmap(avatar.grab())
+        self._botao_editar.setEnabled(bool(self._foto_bytes))
         self._botao_remover.setEnabled(bool(self._foto_bytes))
 
     def _escolher_imagem(self) -> None:
@@ -247,11 +252,23 @@ class WidgetFoto(QWidget):
         pixmap_original = QPixmap(caminho)
         if pixmap_original.isNull():
             return
+        self._ajustar_e_salvar(pixmap_original)
 
+    def _editar_foto(self) -> None:
+        """Reabre o editor de enquadrar/girar na foto que JA esta salva --
+        pra quando a pessoa so quer corrigir o enquadramento/rotacao de
+        novo, sem precisar achar o arquivo original no computador de novo."""
+        if not self._foto_bytes:
+            return
+        pixmap_atual = QPixmap()
+        if not pixmap_atual.loadFromData(self._foto_bytes):
+            return
+        self._ajustar_e_salvar(pixmap_atual)
+
+    def _ajustar_e_salvar(self, pixmap_original: QPixmap) -> None:
         recorte = self._abrir_ajuste(pixmap_original)
         if recorte is None:
             return  # cancelou o ajuste -- mantem a foto que ja estava
-
         self._foto_bytes = pixmap_para_bytes_png(recorte, _TAMANHO_MAX_FOTO)
         self._atualizar_preview()
 
