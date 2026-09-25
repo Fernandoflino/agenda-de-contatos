@@ -17,6 +17,7 @@ a tabela PESSOAS so ganha um nome mais amigavel na sidebar ("Contatos").
 from __future__ import annotations
 
 import sqlite3
+from typing import Callable
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QPixmap
@@ -261,18 +262,42 @@ class MainWindow(QMainWindow):
             if self._pagina_dashboard is None:
                 self._pagina_dashboard = DashboardView(self.conn, self.usuario_logado.usuario)
                 self.paginas.addWidget(self._pagina_dashboard)
-            else:
+            elif self._pagina_dashboard.dados_sujos:
                 self._pagina_dashboard.carregar_dados()
             self.paginas.setCurrentWidget(self._pagina_dashboard)
             return
         pagina = self._paginas_tabelas.get(tabela)
         if pagina is None:
-            pagina = ListaRegistrosView(self.conn, tabela, self.usuario_logado.usuario)
+            pagina = ListaRegistrosView(
+                self.conn,
+                tabela,
+                self.usuario_logado.usuario,
+                ao_alterar_dados=self._marcar_outras_paginas_sujas(tabela),
+            )
             self._paginas_tabelas[tabela] = pagina
             self.paginas.addWidget(pagina)
-        else:
+        elif pagina.dados_sujos:
             pagina.carregar_dados()
         self.paginas.setCurrentWidget(pagina)
+
+    def _marcar_outras_paginas_sujas(self, tabela_origem: str) -> Callable[[], None]:
+        """Callback passado a cada ListaRegistrosView (ver ao_alterar_dados):
+        criar/editar/excluir um registro numa tabela pode afetar o Painel
+        (que agrega todas) e outras tabelas em cache (ex.: nome de empresa
+        resolvido na tela de Contatos) -- marca todas como sujas, exceto a
+        propria origem, que ja se recarrega sozinha. Invalidacao
+        deliberadamente grosseira/global: mais simples e sempre segura (nunca
+        mostra dado desatualizado), ao custo de recarregar de vez em quando
+        uma aba que talvez nao precisasse."""
+
+        def _callback() -> None:
+            if self._pagina_dashboard is not None:
+                self._pagina_dashboard.marcar_dados_sujos()
+            for outra_tabela, outra_pagina in self._paginas_tabelas.items():
+                if outra_tabela != tabela_origem:
+                    outra_pagina.marcar_dados_sujos()
+
+        return _callback
 
     # -- janelas auxiliares --------------------------------------------------
 
@@ -295,6 +320,16 @@ class MainWindow(QMainWindow):
         # sempre, mesmo se o dialogo tiver sido cancelado (o que foi feito
         # nas telas internas ja ficou gravado no banco de qualquer jeito).
         self._atualizar_navegacao()
+
+        # Configuracoes pode mudar ordem de coluna, campos de resumo,
+        # categorias etc. -- coisas que afetam QUALQUER tabela em cache, nao
+        # so a que esta visivel agora, entao marca todas como sujas (a
+        # visivel recarrega ja, abaixo, e isso zera a flag dela).
+        if self._pagina_dashboard is not None:
+            self._pagina_dashboard.marcar_dados_sujos()
+        for pagina in self._paginas_tabelas.values():
+            pagina.marcar_dados_sujos()
+
         pagina_atual = self.paginas.currentWidget()
         if pagina_atual is not None and hasattr(pagina_atual, "carregar_dados"):
             pagina_atual.carregar_dados()

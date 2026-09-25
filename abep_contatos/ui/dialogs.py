@@ -8,10 +8,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication, QCheckBox, QMessageBox, QProgressDialog, QWidget
 
 from atualizacao import BaixadorAtualizacao, abrir_instalador
 from db.lock import InfoLock
+
+# Pagina de releases no GitHub -- alternativa pra quem preferir baixar e
+# instalar o .exe manualmente, em vez do download automatico daqui de dentro
+# (ver botao "Baixar manualmente..." em perguntar_atualizacao()).
+_URL_RELEASES = "https://github.com/Fernandoflino/agenda-de-contatos/releases"
 
 
 def confirmar_exclusao(parent: QWidget, rotulo: str, tipo: str = "registro") -> bool:
@@ -90,10 +97,17 @@ def perguntar_atualizacao(parent: QWidget, versao_atual: str, versao_nova: str, 
     caixa.setCheckBox(checkbox)
 
     botao_atualizar = caixa.addButton("Atualizar agora", QMessageBox.AcceptRole)
+    botao_manual = caixa.addButton("Baixar manualmente...", QMessageBox.ActionRole)
     caixa.addButton("Agora não", QMessageBox.RejectRole)
     caixa.setDefaultButton(botao_atualizar)
 
     caixa.exec()
+    if caixa.clickedButton() is botao_manual:
+        # Abre a pagina de releases no navegador -- quem preferir baixar e
+        # rodar o instalador na mao (em vez do download automatico daqui de
+        # dentro) fica livre pra fazer isso, sem depender da rede/HTTP do
+        # proprio programa.
+        QDesktopServices.openUrl(QUrl(_URL_RELEASES))
     return caixa.clickedButton() is botao_atualizar, checkbox.isChecked()
 
 

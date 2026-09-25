@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 
 from db import categorias, dashboard, preferencias, records
 from db.records import resolver_empresas
-from db.schema import CAMPOS_FOTO_OCULTOS, PESSOAS
+from db.schema import CAMPOS_FOTO_OCULTOS, EMPRESAS, PESSOAS
 from db.tables import get_column_order
 from ui import field_types, icons
 from ui.avatar import criar_avatar
@@ -121,6 +121,20 @@ class DashboardView(QWidget):
         self.usuario_logado = usuario_logado
         self._linhas_filtro_painel: list[QWidget] = []
         self._suprimir_salvamento_prefs_painel = False
+        self._pessoas_cache: list[dict] = []
+        self._empresas_cache: list[dict] = []
+        # Flag de "dados sujos": True ate a proxima carregar_dados() de
+        # verdade -- deixa main_window.py evitar recarregar o Painel do
+        # banco ao trocar de aba quando nada mudou desde a ultima visita.
+        self._dados_sujos = True
+
+        # Debounce do filtro por texto de aniversariantes -- mesma logica de
+        # ui/lista_registros_view.py: espera 250ms de pausa antes de
+        # refiltrar/regravar preferencias, em vez de fazer isso a cada tecla.
+        self._temporizador_filtro_painel = QTimer(self)
+        self._temporizador_filtro_painel.setSingleShot(True)
+        self._temporizador_filtro_painel.setInterval(250)
+        self._temporizador_filtro_painel.timeout.connect(self._ao_mudar_filtro_painel)
 
         # A tela toda fica dentro de uma area rolavel -- numa janela
         # pequena (ou com muitas empresas sem contato, por exemplo), o
@@ -169,15 +183,30 @@ class DashboardView(QWidget):
 
     def carregar_dados(self) -> None:
         """Recalcula tudo a partir do banco -- chamado ao abrir o painel e
-        toda vez que o usuario volta pra essa tela (os numeros podem ter
-        mudado: um contato novo, uma data de nascimento corrigida etc.)."""
+        toda vez que o usuario volta pra essa tela COM dados sujos (ver
+        marcar_dados_sujos/dados_sujos): um contato novo, uma data de
+        nascimento corrigida etc."""
         limpar_layout(self._linha_cartoes)
         limpar_layout(self._layout_aniversarios)
         limpar_layout(self._layout_empresas_sem_contato)
 
+        # Busca PESSOAS/EMPRESAS uma unica vez e reaproveita entre os 3
+        # blocos abaixo -- antes, cada um buscava de novo por conta propria
+        # (~6 SELECT * completos por visita ao Painel).
+        self._pessoas_cache = records.get_records(self.conn, PESSOAS)
+        self._empresas_cache = records.get_records(self.conn, EMPRESAS)
+
         self._popular_cartoes()
         self._popular_aniversarios()
         self._popular_empresas_sem_contato()
+        self._dados_sujos = False
+
+    def marcar_dados_sujos(self) -> None:
+        self._dados_sujos = True
+
+    @property
+    def dados_sujos(self) -> bool:
+        return self._dados_sujos
 
     # -- filtro da lista de aniversariantes -----------------------------------
     # So afeta "Proximos aniversarios" -- os cartoes de numero e "Empresas
@@ -291,13 +320,13 @@ class DashboardView(QWidget):
             widget = QLineEdit()
             widget.setPlaceholderText("valor do filtro...")
             widget.setClearButtonEnabled(True)
-            widget.textChanged.connect(self._ao_mudar_filtro_painel)
+            widget.textChanged.connect(self._agendar_filtro_painel)
 
         linha.layout_valor.addWidget(widget)
         linha.widget_valor = widget
 
     def _pessoas_filtradas(self) -> list[dict]:
-        pessoas = records.get_records(self.conn, PESSOAS)
+        pessoas = self._pessoas_cache
         for linha in self._linhas_filtro_painel:
             campo = linha.combo_campo.currentData()
             if not campo:
@@ -315,6 +344,11 @@ class DashboardView(QWidget):
                 if texto:
                     pessoas = records.filtrar_registros(pessoas, campo=campo, valor=texto)
         return pessoas
+
+    def _agendar_filtro_painel(self) -> None:
+        if self._suprimir_salvamento_prefs_painel:
+            return
+        self._temporizador_filtro_painel.start()
 
     def _ao_mudar_filtro_painel(self) -> None:
         limpar_layout(self._layout_aniversarios)
@@ -383,10 +417,10 @@ class DashboardView(QWidget):
     # -- cartoes de numero ---------------------------------------------------
 
     def _popular_cartoes(self) -> None:
-        incompletos = dashboard.contatos_incompletos(self.conn)
+        incompletos = dashboard.contatos_incompletos(self.conn, pessoas=self._pessoas_cache)
         cartoes = [
-            (str(dashboard.total_contatos(self.conn)), "Contatos cadastrados", False),
-            (str(dashboard.total_empresas(self.conn)), "Empresas associadas", False),
+            (str(dashboard.total_contatos(self.conn, pessoas=self._pessoas_cache)), "Contatos cadastrados", False),
+            (str(dashboard.total_empresas(self.conn, empresas=self._empresas_cache)), "Empresas associadas", False),
             (str(incompletos["sem_email"]), "Contatos sem e-mail", True),
             (str(incompletos["sem_data_nascimento"]), "Sem data de nascimento", True),
         ]
@@ -440,7 +474,7 @@ class DashboardView(QWidget):
     # -- empresas sem contato --------------------------------------------------
 
     def _popular_empresas_sem_contato(self) -> None:
-        faltantes = dashboard.empresas_sem_contato(self.conn)
+        faltantes = dashboard.empresas_sem_contato(self.conn, empresas=self._empresas_cache, pessoas=self._pessoas_cache)
         if not faltantes:
             rotulo = QLabel("Todas as empresas já têm pelo menos um contato cadastrado.")
             rotulo.setProperty("papel", "subtitulo")

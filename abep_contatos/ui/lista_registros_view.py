@@ -23,8 +23,9 @@ Formas de restringir o que aparece na tabela, que podem ser usadas juntas
 from __future__ import annotations
 
 import sqlite3
+from typing import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -94,16 +95,36 @@ class _DialogoValorMassa(QDialog):
 
 
 class ListaRegistrosView(QWidget):
-    def __init__(self, conn: sqlite3.Connection, tabela: str, usuario_logado: str, parent=None):
+    def __init__(
+        self,
+        conn: sqlite3.Connection,
+        tabela: str,
+        usuario_logado: str,
+        parent=None,
+        ao_alterar_dados: Callable[[], None] | None = None,
+    ):
         super().__init__(parent)
         self.conn = conn
         self.tabela = tabela
         self.usuario_logado = usuario_logado
+        # Chamado (se informado) sempre que esta tela cria/edita/exclui um
+        # registro -- avisa main_window.py pra marcar OUTRAS paginas em
+        # cache (Painel, outras tabelas) como "sujas", ja que os dados delas
+        # podem depender do que mudou aqui (ex.: nome de empresa resolvido
+        # na tela de Contatos). Ver _ao_trocar_pagina em ui/main_window.py.
+        self._ao_alterar_dados = ao_alterar_dados
+        self._dados_sujos = True
 
         self._todos_registros: list[dict] = []
         self._registros_filtrados: list[dict] = []
         self._layout_resumo: list[list[str]] = []
         self._campo_titulo = "ID"
+        # Metadados que so mudam quando o ESQUEMA muda (ordem de coluna,
+        # campos de resumo) ou quando uma anotacao e criada/editada -- recalculados
+        # so em carregar_dados() (uma vez por abertura/CRUD), em vez de a
+        # cada tecla digitada no filtro (ver _aplicar_filtro).
+        self._colunas_cache: list[str] = []
+        self._ids_com_anotacao_cache: set[int] = set()
         self._linhas_filtro: list[QWidget] = []
         self._pagina_atual = 0
         self._itens_por_pagina = _ITENS_POR_PAGINA_PADRAO
@@ -122,6 +143,15 @@ class ListaRegistrosView(QWidget):
         # comeca com um campo/valor provisorio, so depois corrigido) acabem
         # sobrescrevendo a preferencia de verdade com um estado incompleto.
         self._suprimir_salvamento_prefs = False
+
+        # Debounce da busca/filtro por texto: em vez de refiltrar e regravar
+        # preferencias a CADA TECLA, espera a pessoa parar de digitar por
+        # 250ms antes de aplicar (ver _agendar_filtro) -- combo/multipla
+        # escolha continuam sincronos, um clique nao gera rajada de eventos.
+        self._temporizador_filtro = QTimer(self)
+        self._temporizador_filtro.setSingleShot(True)
+        self._temporizador_filtro.setInterval(250)
+        self._temporizador_filtro.timeout.connect(self._ao_mudar_filtro)
 
         self._montar_tela()
         self.carregar_dados()
@@ -187,7 +217,7 @@ class ListaRegistrosView(QWidget):
         self.campo_busca.setPlaceholderText("Buscar por nome, e-mail, cargo ou palavra-chave...")
         self.campo_busca.setClearButtonEnabled(True)  # "x" pra limpar o texto digitado, de graca via o Qt
         self.campo_busca.addAction(icons.icone("busca", cor_icone), QLineEdit.LeadingPosition)
-        self.campo_busca.textChanged.connect(self._ao_mudar_filtro)
+        self.campo_busca.textChanged.connect(self._agendar_filtro)
         linha.addWidget(self.campo_busca, stretch=1)
 
         self.botao_acoes_massa = QToolButton()
@@ -243,7 +273,7 @@ class ListaRegistrosView(QWidget):
     # -- linhas de filtro (uma por campo filtrado) ----------------------------
 
     def _adicionar_linha_filtro(self) -> None:
-        colunas = [c for c in get_column_order(self.conn, self.tabela) if c != "ID"]
+        colunas = [c for c in self._colunas_cache if c != "ID"]
         opcoes = self._opcoes_de_campo(colunas)
         if not opcoes:
             return
@@ -321,7 +351,7 @@ class ListaRegistrosView(QWidget):
             widget = QLineEdit()
             widget.setPlaceholderText("valor do filtro...")
             widget.setClearButtonEnabled(True)
-            widget.textChanged.connect(self._ao_mudar_filtro)
+            widget.textChanged.connect(self._agendar_filtro)
 
         linha.layout_valor.addWidget(widget)
         linha.widget_valor = widget
@@ -400,7 +430,7 @@ class ListaRegistrosView(QWidget):
             self._suprimir_salvamento_prefs = False
 
     def _restaurar_filtros_salvos(self, filtros_salvos: list[dict]) -> None:
-        colunas = [c for c in get_column_order(self.conn, self.tabela) if c != "ID"]
+        colunas = [c for c in self._colunas_cache if c != "ID"]
         campos_validos = {campo for _, campo in self._opcoes_de_campo(colunas)}
 
         for item in filtros_salvos:
@@ -608,14 +638,22 @@ class ListaRegistrosView(QWidget):
         tela e depois de qualquer criacao/edicao/exclusao."""
         self.rotulo_titulo.setText(settings.obter_rotulo_tabela(self.conn, self.tabela))
 
-        colunas = [c for c in get_column_order(self.conn, self.tabela) if c != "ID"]
+        self._colunas_cache = get_column_order(self.conn, self.tabela)
+        colunas = [c for c in self._colunas_cache if c != "ID"]
         opcoes_campo = self._opcoes_de_campo(colunas)
         for linha in self._linhas_filtro:
             self._atualizar_combo_campo_linha(linha, opcoes_campo)
 
         self._todos_registros = records.get_records(self.conn, self.tabela)
+        self._ids_com_anotacao_cache = anotacoes.ids_com_anotacao(
+            self.conn, self.tabela, [r["ID"] for r in self._todos_registros if r.get("ID") is not None]
+        )
         self._ids_selecionados.clear()
         self._atualizar_botao_excluir_selecionados()
+
+        padrao = settings.sugerir_layout_resumo(self._colunas_cache)
+        self._layout_resumo = settings.obter_campos_resumo(self.conn, self.tabela, padrao)
+        self._campo_titulo = self._determinar_campo_titulo(self._colunas_cache)
 
         # As opcoes de Empresa/Categoria de cada linha de filtro dependem
         # dos dados (quais empresas/categorias existem de verdade) -- podem
@@ -635,6 +673,33 @@ class ListaRegistrosView(QWidget):
                 self._mostrar_detalhe(atualizado)
             else:
                 self._fechar_detalhe()
+
+        self._dados_sujos = False
+
+    def marcar_dados_sujos(self) -> None:
+        self._dados_sujos = True
+
+    @property
+    def dados_sujos(self) -> bool:
+        return self._dados_sujos
+
+    def _notificar_alteracao(self) -> None:
+        """Chamado apos criar/editar/excluir um registro NESTA tabela --
+        avisa main_window.py (se um callback foi informado) pra marcar as
+        OUTRAS paginas em cache (Painel, outras tabelas) como sujas."""
+        if self._ao_alterar_dados is not None:
+            self._ao_alterar_dados()
+
+    def _agendar_filtro(self) -> None:
+        """Reinicia o temporizador de debounce a cada tecla -- so filtra de
+        verdade quando a pessoa parar de digitar por 250ms (ver
+        _temporizador_filtro no __init__). Durante a restauracao de
+        preferencias (_suprimir_salvamento_prefs=True) nem agenda, pra nao
+        disparar um _salvar_preferencias() tardio e indevido depois que a
+        restauracao ja tiver terminado."""
+        if self._suprimir_salvamento_prefs:
+            return
+        self._temporizador_filtro.start()
 
     def _ao_mudar_filtro(self) -> None:
         self._pagina_atual = 0
@@ -778,11 +843,6 @@ class ListaRegistrosView(QWidget):
 
         filtrados = records.filtrar_registros(filtrados, busca=self.campo_busca.text())
 
-        colunas = get_column_order(self.conn, self.tabela)
-        padrao = settings.sugerir_layout_resumo(colunas)
-        self._layout_resumo = settings.obter_campos_resumo(self.conn, self.tabela, padrao)
-        self._campo_titulo = self._determinar_campo_titulo(colunas)
-
         # Sem coluna escolhida pela pessoa (estado inicial): ordem padrao,
         # pelo campo-titulo. Depois que ela clica num cabecalho, essa
         # escolha manda ate a pessoa clicar em outro cabecalho.
@@ -894,12 +954,11 @@ class ListaRegistrosView(QWidget):
         pagina = self._pagina_atual_de_registros()
         self.tabela_widget.setRowCount(len(pagina))
 
-        # Uma unica consulta pra pagina inteira (nao uma por linha) --
-        # descobre quais desses registros tem anotacao, pra desenhar o
-        # iconezinho de nota ao lado do nome.
-        ids_com_anotacao = anotacoes.ids_com_anotacao(
-            self.conn, self.tabela, [r["ID"] for r in pagina if r.get("ID") is not None]
-        )
+        # Quais registros (de QUALQUER pagina) tem anotacao -- calculado uma
+        # unica vez em carregar_dados() (ver self._ids_com_anotacao_cache),
+        # em vez de consultar o banco de novo a cada vez que a tabela e
+        # redesenhada, pra desenhar o iconezinho de nota ao lado do nome.
+        ids_com_anotacao = self._ids_com_anotacao_cache
 
         for linha, registro in enumerate(pagina):
             id_registro = registro.get("ID")
@@ -1108,7 +1167,7 @@ class ListaRegistrosView(QWidget):
             linha_pilulas.addStretch()
             self._layout_cabecalho_detalhe.addLayout(linha_pilulas)
 
-        colunas = get_column_order(self.conn, self.tabela)
+        colunas = self._colunas_cache
         campo_email = next(
             (c for c in colunas if field_types.tipo_do_campo(self.conn, self.tabela, c)[0] == field_types.EMAIL),
             None,
@@ -1235,7 +1294,13 @@ class ListaRegistrosView(QWidget):
     def _salvar_anotacao(self) -> None:
         if self._registro_detalhe is None:
             return
-        anotacoes.salvar_anotacao(self.conn, self.tabela, self._registro_detalhe["ID"], self.campo_anotacoes.toPlainText())
+        texto = self.campo_anotacoes.toPlainText()
+        anotacoes.salvar_anotacao(self.conn, self.tabela, self._registro_detalhe["ID"], texto)
+        id_registro = self._registro_detalhe["ID"]
+        if texto.strip():
+            self._ids_com_anotacao_cache.add(id_registro)
+        else:
+            self._ids_com_anotacao_cache.discard(id_registro)
         mostrar_info(self, "Anotação salva.")
 
     def _fechar_detalhe(self) -> None:
@@ -1255,6 +1320,7 @@ class ListaRegistrosView(QWidget):
                 mostrar_erro(self, str(erro))
                 return
             self.carregar_dados()
+            self._notificar_alteracao()
 
     def _editar_registro(self, registro: dict) -> None:
         dialogo = RecordFormDialog(self.conn, self.tabela, registro=registro, parent=self)
@@ -1269,6 +1335,7 @@ class ListaRegistrosView(QWidget):
                 mostrar_erro(self, str(erro))
                 return
             self.carregar_dados()
+            self._notificar_alteracao()
 
     def _editar_registro_detalhe(self) -> None:
         if self._registro_detalhe is not None:
@@ -1285,6 +1352,7 @@ class ListaRegistrosView(QWidget):
             return
         self._ids_selecionados.discard(registro["ID"])
         self.carregar_dados()
+        self._notificar_alteracao()
 
     def _excluir_selecionados(self) -> None:
         if not self._ids_selecionados:
@@ -1298,6 +1366,7 @@ class ListaRegistrosView(QWidget):
                 pass
         self._ids_selecionados.clear()
         self.carregar_dados()
+        self._notificar_alteracao()
 
     # -- acoes em massa -------------------------------------------------------
 
@@ -1324,6 +1393,7 @@ class ListaRegistrosView(QWidget):
         for id_registro in list(self._ids_selecionados):
             aplicar(id_registro)
         self.carregar_dados()
+        self._notificar_alteracao()
 
     def _massa_aplicar_categoria(self, novas_categorias: list[str]) -> None:
         self._aplicar_em_selecionados(

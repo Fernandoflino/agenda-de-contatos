@@ -12,6 +12,7 @@ from __future__ import annotations
 import mimetypes
 import re
 import zipfile
+from functools import lru_cache
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QRectF, Qt
 from PySide6.QtGui import QPainter, QPainterPath, QPixmap
@@ -73,6 +74,16 @@ def pixmap_circular(dados_png: bytes, tamanho: int) -> QPixmap | None:
     centro) e recortado em circulo -- usado tanto no avatar pequeno quanto
     no preview do formulario de contato. Devolve None se os bytes nao forem
     uma imagem valida."""
+    return _pixmap_circular_cacheado(dados_png, tamanho)
+
+
+@lru_cache(maxsize=256)
+def _pixmap_circular_cacheado(dados_png: bytes, tamanho: int) -> QPixmap | None:
+    # Decodificar+recortar a mesma foto de novo a cada linha redesenhada da
+    # tabela (ou aniversariante do Painel) era um dos pontos mais pesados
+    # das travadas relatadas -- a chave do cache e o CONTEUDO da foto, entao
+    # uma foto nova gera uma chave nova automaticamente, sem precisar de
+    # nenhuma invalidacao manual.
     original = QPixmap()
     if not original.loadFromData(dados_png):
         return None

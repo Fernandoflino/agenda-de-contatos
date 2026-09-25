@@ -20,12 +20,12 @@ from . import records
 from .schema import EMPRESAS, PESSOAS
 
 
-def total_contatos(conn: sqlite3.Connection) -> int:
-    return len(records.get_records(conn, PESSOAS))
+def total_contatos(conn: sqlite3.Connection, pessoas: list[dict] | None = None) -> int:
+    return len(pessoas if pessoas is not None else records.get_records(conn, PESSOAS))
 
 
-def total_empresas(conn: sqlite3.Connection) -> int:
-    return len(records.get_records(conn, EMPRESAS))
+def total_empresas(conn: sqlite3.Connection, empresas: list[dict] | None = None) -> int:
+    return len(empresas if empresas is not None else records.get_records(conn, EMPRESAS))
 
 
 @dataclass
@@ -101,12 +101,14 @@ def proximos_aniversarios(
     return encontrados[:limite]
 
 
-def empresas_sem_contato(conn: sqlite3.Connection) -> list[str]:
+def empresas_sem_contato(
+    conn: sqlite3.Connection, empresas: list[dict] | None = None, pessoas: list[dict] | None = None
+) -> list[str]:
     """Empresas que ainda nao tem NENHUM contato cadastrado -- um jeito
     rapido de achar quem ainda precisa ser preenchido. Devolve uma lista de
     textos prontos pra mostrar ("SIGLA - Nome da empresa")."""
-    empresas = records.get_records(conn, EMPRESAS)
-    pessoas = records.get_records(conn, PESSOAS)
+    empresas = empresas if empresas is not None else records.get_records(conn, EMPRESAS)
+    pessoas = pessoas if pessoas is not None else records.get_records(conn, PESSOAS)
     ids_com_contato = {p.get("ID_EMPRESA") for p in pessoas if p.get("ID_EMPRESA") is not None}
 
     faltantes = []
@@ -118,11 +120,11 @@ def empresas_sem_contato(conn: sqlite3.Connection) -> list[str]:
     return sorted(faltantes)
 
 
-def contatos_incompletos(conn: sqlite3.Connection) -> dict[str, int]:
+def contatos_incompletos(conn: sqlite3.Connection, pessoas: list[dict] | None = None) -> dict[str, int]:
     """Quantos contatos estao sem e-mail, sem WhatsApp, ou sem data de
     nascimento preenchida -- um jeito rapido de ver o que falta completar
     no cadastro (nao e um erro, so um indicador de dado ausente)."""
-    pessoas = records.get_records(conn, PESSOAS)
+    pessoas = pessoas if pessoas is not None else records.get_records(conn, PESSOAS)
     return {
         "sem_email": sum(1 for p in pessoas if not str(p.get("EMAIL") or "").strip()),
         "sem_whatsapp": sum(1 for p in pessoas if not str(p.get("WHATSAPP") or "").strip()),
