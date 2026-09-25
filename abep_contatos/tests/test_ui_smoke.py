@@ -15,13 +15,14 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QComboBox
 
-from db import anotacoes, auth, categorias, connection, dashboard, importer, records
+from db import anotacoes, auth, categorias, connection, dashboard, importer, lixeira, records
 from db.schema import EMPRESAS, PESSOAS
 from ui.dashboard_view import DashboardView
 from ui.export_dialog import ExportDialog
 from ui.historico_dialog import HistoricoDialog
 from ui.launcher_dialog import LauncherDialog
 from ui.lista_registros_view import ListaRegistrosView
+from ui.lixeira_dialog import LixeiraDialog
 from ui.login_dialog import LoginDialog
 from ui.main_window import MainWindow
 from ui.record_form_dialog import RecordFormDialog
@@ -723,6 +724,75 @@ def test_export_dialog_com_ids_selecionados_trava_tabela(banco_com_dados):
 def test_settings_dialog_constroi(banco_com_dados):
     dialogo = SettingsDialog(banco_com_dados, "admin")
     assert dialogo.campo_nome.text()
+
+
+def test_settings_dialog_tem_botao_lixeira(banco_com_dados):
+    from PySide6.QtWidgets import QPushButton
+
+    dialogo = SettingsDialog(banco_com_dados, "admin")
+    textos = [b.text() for b in dialogo.findChildren(QPushButton)]
+    assert "Lixeira..." in textos
+
+
+def test_lixeira_dialog_mostra_registro_tabela_e_campo_excluidos(banco_com_dados):
+    from db.tables import add_column, create_data_sheet, delete_data_sheet, drop_column
+
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    id_pessoa = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Fulano"})
+    records.delete_record(banco_com_dados, PESSOAS, id_pessoa)
+
+    create_data_sheet(banco_com_dados, "FORNECEDORES")
+    delete_data_sheet(banco_com_dados, "FORNECEDORES")
+
+    add_column(banco_com_dados, EMPRESAS, "OBSERVACAO", "TEXT")
+    drop_column(banco_com_dados, EMPRESAS, "OBSERVACAO")
+
+    dialogo = LixeiraDialog(banco_com_dados, "admin")
+    assert dialogo.tabela_registros.rowCount() == 1
+    assert dialogo.tabela_registros.item(0, 0).text() == "Fulano"
+    assert dialogo.tabela_tabelas.rowCount() == 1
+    assert dialogo.tabela_tabelas.item(0, 0).text() == "FORNECEDORES"
+    assert dialogo.tabela_campos.rowCount() == 1
+    assert dialogo.tabela_campos.item(0, 0).text() == "OBSERVACAO"
+
+
+def test_lixeira_dialog_restaurar_registro_recarrega_lista(banco_com_dados):
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    id_pessoa = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Fulano"})
+    records.delete_record(banco_com_dados, PESSOAS, id_pessoa)
+
+    dialogo = LixeiraDialog(banco_com_dados, "admin")
+    assert dialogo.tabela_registros.rowCount() == 1
+
+    id_lixeira = lixeira.listar_registros(banco_com_dados)[0]["id_lixeira"]
+    dialogo._restaurar_registro(id_lixeira)
+
+    assert dialogo.tabela_registros.rowCount() == 0
+    assert records.get_records(banco_com_dados, PESSOAS)[0]["NOME"] == "Fulano"
+
+
+def test_lixeira_dialog_excluir_definitivamente_pede_confirmacao(banco_com_dados, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    id_pessoa = records.create_record(banco_com_dados, PESSOAS, {"NOME": "Fulano"})
+    records.delete_record(banco_com_dados, PESSOAS, id_pessoa)
+    id_lixeira = lixeira.listar_registros(banco_com_dados)[0]["id_lixeira"]
+
+    dialogo = LixeiraDialog(banco_com_dados, "admin")
+
+    # Por padrao (fixture sem_caixas_de_dialogo_bloqueantes), QMessageBox.question
+    # devolve "No" -- ou seja, cancelar a confirmacao tem que MANTER o item.
+    dialogo._confirmar_e_excluir(
+        "Fulano", lambda: dialogo._excluir_definitivamente(lixeira.excluir_definitivamente_registro, id_lixeira, dialogo._popular_registros)
+    )
+    assert len(lixeira.listar_registros(banco_com_dados)) == 1
+
+    # Confirmando (Yes), o item some de vez.
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    dialogo._confirmar_e_excluir(
+        "Fulano", lambda: dialogo._excluir_definitivamente(lixeira.excluir_definitivamente_registro, id_lixeira, dialogo._popular_registros)
+    )
+    assert lixeira.listar_registros(banco_com_dados) == []
 
 
 def _rotulos_lista(lista_widget) -> list[str]:

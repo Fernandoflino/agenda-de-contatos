@@ -45,6 +45,7 @@ from db.tables import get_column_order, list_data_sheets
 from ui import field_types
 from ui.categorias_dialog import CategoriasDialog
 from ui.historico_dialog import HistoricoDialog
+from ui.lixeira_dialog import LixeiraDialog
 from ui.sheet_manager_dialog import SheetManagerDialog
 from ui.theme import marcar_variante
 from ui.window_utils import preparar_janela
@@ -128,6 +129,7 @@ class SettingsDialog(QDialog):
             ("Categorias...", self._abrir_categorias),
             ("Tabelas e campos...", self._abrir_gerenciador_tabelas),
             ("Histórico...", self._abrir_historico),
+            ("Lixeira...", self._abrir_lixeira),
         ):
             botao = QPushButton(texto)
             marcar_variante(botao, "secundario")
@@ -150,6 +152,14 @@ class SettingsDialog(QDialog):
 
     def _abrir_historico(self) -> None:
         HistoricoDialog(self.conn, parent=self).exec()
+
+    def _abrir_lixeira(self) -> None:
+        LixeiraDialog(self.conn, self.usuario, parent=self).exec()
+        # tabelas restauradas da lixeira podem precisar aparecer nesta lista
+        self.combo_tabela_resumo.clear()
+        self.combo_tabela_resumo.addItems(list_data_sheets(self.conn))
+        if self.combo_tabela_resumo.count():
+            self._recarregar_campos_resumo(self.combo_tabela_resumo.currentText())
 
     # -- aba Identidade (nome, cor, tema, logotipo) --------------------------
 

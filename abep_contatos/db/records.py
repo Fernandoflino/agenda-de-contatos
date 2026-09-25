@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from . import auth, log
+from . import auth, lixeira, log
 from .identifiers import quote_ident, validar_identificador
 from .schema import APP_CATEGORIAS, APP_PESSOAS_CATEGORIAS, EMPRESAS, PESSOAS, USUARIOS
 from .tables import get_schema
@@ -199,8 +199,11 @@ def update_record(conn: sqlite3.Connection, tabela: str, id_valor: int, data: di
 
 
 def delete_record(conn: sqlite3.Connection, tabela: str, id_valor: int, usuario: str = "sistema") -> None:
-    """Apaga uma linha pelo ID, pra sempre (nao tem "lixeira")."""
+    """Manda uma linha pra lixeira e so entao apaga ela de verdade -- ver
+    db/lixeira.py::capturar_registro (guarda a "foto" antes do DELETE) e a
+    tela de Configuracoes -> Lixeira (pra restaurar)."""
     tabela = validar_identificador(tabela, "tabela")
+    lixeira.capturar_registro(conn, tabela, id_valor, usuario)
     cur = conn.execute(f'DELETE FROM {quote_ident(tabela)} WHERE "ID" = ?', (id_valor,))
     if cur.rowcount == 0:
         raise ValueError(f'Registro com ID "{id_valor}" nao encontrado em "{tabela}".')

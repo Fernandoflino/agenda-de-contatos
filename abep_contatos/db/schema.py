@@ -33,6 +33,9 @@ APP_ANOTACOES = "app_anotacoes"         # anotacoes livres por registro (ver db/
 APP_USER_PREFS = "app_user_prefs"       # filtros/larguras que CADA USUARIO deixou numa tabela (ver db/preferencias.py)
 APP_CATEGORIAS = "app_categorias"       # lista mestre de categorias de PESSOAS (ver db/categorias.py)
 APP_PESSOAS_CATEGORIAS = "app_pessoas_categorias"  # vinculo N:N entre PESSOAS e app_categorias
+APP_LIXEIRA_REGISTROS = "app_lixeira_registros"  # registros excluidos (ver db/lixeira.py)
+APP_LIXEIRA_TABELAS = "app_lixeira_tabelas"      # tabelas inteiras excluidas
+APP_LIXEIRA_CAMPOS = "app_lixeira_campos"        # campos/colunas excluidos
 USUARIOS = "USUARIOS"                   # quem pode fazer login no programa
 EMPRESAS = "EMPRESAS"                   # as empresas associadas (a tabela "mae")
 PESSOAS = "PESSOAS"                     # os contatos (presidentes, diretores etc.), ligados a uma empresa
@@ -53,6 +56,9 @@ RESERVED_TABLES = {
     APP_USER_PREFS,
     APP_CATEGORIAS,
     APP_PESSOAS_CATEGORIAS,
+    APP_LIXEIRA_REGISTROS,
+    APP_LIXEIRA_TABELAS,
+    APP_LIXEIRA_CAMPOS,
 }
 
 # Estas 3 tabelas sao "especiais": boa parte do programa (login, resolucao de
@@ -68,7 +74,7 @@ TABELAS_PROTEGIDAS = {EMPRESAS, PESSOAS, USUARIOS}
 # "consertar" bancos antigos automaticamente, este numero e o que vamos
 # comparar pra saber se e preciso rodar alguma migracao (ver
 # migrar_schema_se_necessario() no final deste arquivo).
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # --- Tabelas internas do programa (configuracao, seguranca, historico) ---
 _DDL_INTERNAS = f"""
@@ -220,6 +226,47 @@ CREATE TABLE {APP_PESSOAS_CATEGORIAS} (
 );
 """
 
+# --- Lixeira: guarda uma "foto" de tudo que foi excluido (registros,
+# tabelas inteiras, campos/colunas), pra dar pra restaurar depois em vez de
+# perder pra sempre -- ver db/lixeira.py. Cada JSON guarda o suficiente pra
+# reconstruir o que foi apagado (linha completa, ou schema+dados inteiros de
+# uma tabela, ou os valores de uma coluna em cada registro que tinha algo
+# nela).
+_DDL_LIXEIRA = f"""
+CREATE TABLE {APP_LIXEIRA_REGISTROS} (
+    "ID" INTEGER PRIMARY KEY,
+    "TABELA" TEXT NOT NULL,
+    "REGISTRO_ID_ORIGINAL" INTEGER NOT NULL,
+    "DADOS_JSON" TEXT NOT NULL,
+    "CATEGORIAS_JSON" TEXT,
+    "ANOTACAO_TEXTO" TEXT,
+    "EXCLUIDO_POR" TEXT,
+    "EXCLUIDO_EM" TEXT NOT NULL
+);
+
+CREATE TABLE {APP_LIXEIRA_TABELAS} (
+    "ID" INTEGER PRIMARY KEY,
+    "TABELA" TEXT NOT NULL,
+    "SCHEMA_JSON" TEXT NOT NULL,
+    "DADOS_JSON" TEXT NOT NULL,
+    "ANOTACOES_JSON" TEXT,
+    "EXCLUIDO_POR" TEXT,
+    "EXCLUIDO_EM" TEXT NOT NULL
+);
+
+CREATE TABLE {APP_LIXEIRA_CAMPOS} (
+    "ID" INTEGER PRIMARY KEY,
+    "TABELA" TEXT NOT NULL,
+    "COLUNA" TEXT NOT NULL,
+    "TIPO_SQL_ORIGINAL" TEXT NOT NULL,
+    "TIPO_CAMPO_JSON" TEXT,
+    "ORDEM_ORIGINAL" INTEGER,
+    "VALORES_JSON" TEXT NOT NULL,
+    "EXCLUIDO_POR" TEXT,
+    "EXCLUIDO_EM" TEXT NOT NULL
+);
+"""
+
 
 def criar_schema_inicial(conn) -> None:
     """Executa todo o SQL acima de uma vez, criando um banco novo do zero.
@@ -232,6 +279,7 @@ def criar_schema_inicial(conn) -> None:
     conn.executescript(_DDL_EMPRESAS)
     conn.executescript(_DDL_PESSOAS)
     conn.executescript(_DDL_CATEGORIAS)
+    conn.executescript(_DDL_LIXEIRA)
 
     # Guarda a versao do schema, pra o programa saber no futuro se esse
     # arquivo precisa de algum ajuste automatico antes de ser aberto.
@@ -423,6 +471,13 @@ def migrar_schema_se_necessario(conn) -> None:
                     f'INSERT OR IGNORE INTO {APP_PESSOAS_CATEGORIAS} ("PESSOA_ID", "CATEGORIA_ID") VALUES (?, ?)',
                     vinculos,
                 )
+
+    if APP_LIXEIRA_REGISTROS not in tabelas_existentes:
+        # Bancos criados antes de existir a Lixeira -- so cria as 3 tabelas
+        # vazias (comecam sem nenhum item, estado normal; nada do que ja foi
+        # excluido ANTES dessa versao pode ser recuperado retroativamente).
+        conn.executescript(_DDL_LIXEIRA)
+        mudou = True
 
     if mudou:
         conn.commit()

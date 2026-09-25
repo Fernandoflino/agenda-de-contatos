@@ -101,6 +101,17 @@ def test_migracao_vincula_pessoas_as_categorias_ignorando_diferenca_de_caixa():
     conn.close()
 
 
+def test_migracao_cria_tabelas_da_lixeira():
+    conn = _banco_antigo()
+    schema.migrar_schema_se_necessario(conn)
+    schema.migrar_schema_se_necessario(conn)  # roda 2x: nao pode dar erro de "tabela ja existe"
+    tabelas = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert "app_lixeira_registros" in tabelas
+    assert "app_lixeira_tabelas" in tabelas
+    assert "app_lixeira_campos" in tabelas
+    conn.close()
+
+
 def test_migracao_e_idempotente():
     conn = _banco_antigo()
     id_empresa = conn.execute('INSERT INTO "EMPRESAS" ("SIGLA", "EMPRESA") VALUES (?, ?)', ("ABC", "Empresa ABC")).lastrowid

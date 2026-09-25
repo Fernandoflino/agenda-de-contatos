@@ -14,9 +14,19 @@ from __future__ import annotations
 import sqlite3
 from typing import Callable
 
-from . import log
+from . import lixeira, log
 from .identifiers import quote_ident, validar_identificador
-from .schema import APP_COLUMN_ORDER, APP_FIELD_TYPES, APP_TABLE_ORDER, RESERVED_TABLES, TABELAS_PROTEGIDAS
+from .schema import (
+    APP_ANOTACOES,
+    APP_COLUMN_ORDER,
+    APP_FIELD_TYPES,
+    APP_LIST_DISPLAY,
+    APP_TABLE_LABELS,
+    APP_TABLE_ORDER,
+    APP_USER_PREFS,
+    RESERVED_TABLES,
+    TABELAS_PROTEGIDAS,
+)
 
 
 def list_data_sheets(conn: sqlite3.Connection) -> list[str]:
@@ -126,7 +136,10 @@ def rename_data_sheet(conn: sqlite3.Connection, nome_atual: str, novo_nome: str,
 
 
 def delete_data_sheet(conn: sqlite3.Connection, nome: str, usuario: str = "sistema") -> None:
-    """Apaga uma tabela de dados inteira (com todas as linhas dela).
+    """Manda uma tabela de dados inteira (estrutura + todas as linhas) pra
+    lixeira e so entao apaga ela de verdade -- ver
+    db/lixeira.py::capturar_tabela (guarda a "foto" antes do DROP TABLE) e a
+    tela de Configuracoes -> Lixeira (pra restaurar).
 
     Nunca deixa apagar a UNICA tabela de dados que sobrou -- o programa
     sempre precisa ter pelo menos uma tabela pra mostrar alguma coisa na tela.
@@ -141,10 +154,18 @@ def delete_data_sheet(conn: sqlite3.Connection, nome: str, usuario: str = "siste
     if len(list_data_sheets(conn)) <= 1:
         raise ValueError("Nao e possivel excluir a unica tabela de dados.")
 
+    lixeira.capturar_tabela(conn, nome, usuario)
     conn.execute(f"DROP TABLE {quote_ident(nome)}")
     conn.execute(f"DELETE FROM {APP_COLUMN_ORDER} WHERE tabela = ?", (nome,))
     conn.execute(f"DELETE FROM {APP_FIELD_TYPES} WHERE tabela = ?", (nome,))
     conn.execute(f"DELETE FROM {APP_TABLE_ORDER} WHERE tabela = ?", (nome,))
+    # Estas 4 nao eram limpas antes (bug encontrado ao desenhar a lixeira) --
+    # sem isso, ficavam orfas pra sempre se uma tabela com esse mesmo nome
+    # fosse criada de novo depois.
+    conn.execute(f"DELETE FROM {APP_TABLE_LABELS} WHERE tabela = ?", (nome,))
+    conn.execute(f"DELETE FROM {APP_LIST_DISPLAY} WHERE tabela = ?", (nome,))
+    conn.execute(f"DELETE FROM {APP_ANOTACOES} WHERE tabela = ?", (nome,))
+    conn.execute(f"DELETE FROM {APP_USER_PREFS} WHERE tabela = ?", (nome,))
     conn.commit()
     log.log_change(conn, usuario, nome, "Excluir tabela")
 
@@ -187,14 +208,18 @@ def rename_column(conn: sqlite3.Connection, tabela: str, atual: str, novo: str, 
 
 
 def drop_column(conn: sqlite3.Connection, tabela: str, coluna: str, usuario: str = "sistema") -> None:
-    """Remove um campo de uma tabela (e os dados que estavam nele, pra
-    sempre). O campo "ID" nunca pode ser removido -- e ele que identifica
-    cada linha de forma unica dentro do programa."""
+    """Manda um campo de uma tabela (e os valores que estavam nele) pra
+    lixeira e so entao remove ele de verdade -- ver
+    db/lixeira.py::capturar_campo (guarda os valores antes do ALTER TABLE
+    ... DROP COLUMN) e a tela de Configuracoes -> Lixeira (pra restaurar). O
+    campo "ID" nunca pode ser removido -- e ele que identifica cada linha de
+    forma unica dentro do programa."""
     tabela = validar_identificador(tabela, "tabela")
     coluna = validar_identificador(coluna, "campo")
     if coluna == "ID":
         raise ValueError('O campo "ID" nao pode ser removido.')
 
+    lixeira.capturar_campo(conn, tabela, coluna, usuario)
     conn.execute(f"ALTER TABLE {quote_ident(tabela)} DROP COLUMN {quote_ident(coluna)}")
     conn.execute(f"DELETE FROM {APP_COLUMN_ORDER} WHERE tabela = ? AND coluna = ?", (tabela, coluna))
     conn.execute(f"DELETE FROM {APP_FIELD_TYPES} WHERE tabela = ? AND coluna = ?", (tabela, coluna))
