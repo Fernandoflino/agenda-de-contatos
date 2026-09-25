@@ -182,9 +182,20 @@ class RecordFormDialog(QDialog):
             _limitar_largura_combo(combo)
             combo.addItems(opcoes or [])
             if valor_atual:
-                indice = combo.findText(str(valor_atual))
-                if indice >= 0:
-                    combo.setCurrentIndex(indice)
+                indice = combo.findText(str(valor_atual), Qt.MatchFixedString)
+                if indice < 0:
+                    # O valor ja guardado nao bate com nenhuma das opcoes
+                    # cadastradas (ex.: abreviacao como "M"/"F" em vez de
+                    # "Masculino"/"Feminino", ou um valor antigo/diferente).
+                    # Em vez de deixar o combo cair silenciosamente no
+                    # primeiro item da lista -- o que mostraria um valor
+                    # ERRADO na tela e poderia sobrescrever o dado real ao
+                    # salvar sem ninguem perceber -- adiciona o valor bruto
+                    # como item extra e seleciona ele, preservando o dado ate
+                    # alguem corrigir na mao escolhendo a opcao certa.
+                    combo.addItem(str(valor_atual))
+                    indice = combo.count() - 1
+                combo.setCurrentIndex(indice)
             return combo
 
         if tipo == field_types.DATA:

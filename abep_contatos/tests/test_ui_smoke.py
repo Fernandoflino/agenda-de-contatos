@@ -414,6 +414,45 @@ def test_record_form_dialog_preserva_data_invalida_de_dado_antigo(banco_com_dado
     assert widget.text() == "Cláudia"
 
 
+def test_record_form_dialog_selecao_preserva_valor_nao_cadastrado(banco_com_dados):
+    """Regressao: um campo do tipo 'selecao' (ex.: SEXO) cujo valor JA
+    GRAVADO nao bate com nenhuma das opcoes da lista (ex.: abreviacao "M" em
+    vez de "Masculino") nao pode fazer o combo cair silenciosamente no
+    primeiro item ("Feminino") -- isso mostraria um valor ERRADO na tela e,
+    se a pessoa salvasse sem mexer no campo, sobrescreveria o dado real sem
+    perceber. O valor original precisa continuar selecionado/visivel."""
+    from db import records as records_mod
+
+    id_empresa = records_mod.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    id_pessoa = records_mod.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Fulano", "SEXO": "M"})
+    pessoa = records_mod.get_record(banco_com_dados, PESSOAS, id_pessoa)
+
+    dialogo = RecordFormDialog(banco_com_dados, PESSOAS, registro=pessoa)
+    widget = dialogo._widgets["SEXO"]
+    assert isinstance(widget, QComboBox)
+    assert widget.currentText() == "M"
+
+    dialogo._ao_salvar()
+    assert dialogo.resultado()["SEXO"] == "M"
+
+
+def test_record_form_dialog_selecao_ignora_diferenca_de_maiusculas(banco_com_dados):
+    """Um valor ja gravado que so difere de uma opcao cadastrada por
+    maiusculas/minusculas (ex.: 'masculino' vs. 'Masculino') deve selecionar
+    a opcao existente, em vez de virar um item extra duplicado."""
+    from db import records as records_mod
+
+    id_empresa = records_mod.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    id_pessoa = records_mod.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Fulano", "SEXO": "masculino"})
+    pessoa = records_mod.get_record(banco_com_dados, PESSOAS, id_pessoa)
+
+    dialogo = RecordFormDialog(banco_com_dados, PESSOAS, registro=pessoa)
+    widget = dialogo._widgets["SEXO"]
+    assert isinstance(widget, QComboBox)
+    assert widget.currentText() == "Masculino"
+    assert widget.count() == 2  # nao deve ter criado um item extra
+
+
 def test_record_form_dialog_nao_preenche_data_vazia_com_hoje_ao_salvar(banco_com_dados):
     """Um campo de data que NUNCA foi preenchido mostra 'hoje' no calendario
     so como ponto de partida visual -- mas se a pessoa salvar sem mexer
