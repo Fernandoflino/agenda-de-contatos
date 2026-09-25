@@ -909,6 +909,102 @@ def test_widget_foto_avisa_quando_tem_foto_mas_nao_tem_original(qapp):
     assert sem_foto_nenhuma._aviso_sem_original.isHidden()  # nada pra avisar ainda
 
 
+def test_widget_foto_aceita_arrastar_e_soltar(qapp):
+    from ui.widgets import WidgetFoto
+
+    widget = WidgetFoto("Fulano", None)
+    assert widget.acceptDrops()
+
+
+def test_widget_foto_caminho_imagem_arrastada_aceita_extensao_valida(qapp, tmp_path):
+    from PySide6.QtCore import QMimeData, QUrl
+
+    from ui.widgets import WidgetFoto
+
+    caminho = tmp_path / "foto.jpg"
+    caminho.write_bytes(b"conteudo")
+
+    mime_data = QMimeData()
+    mime_data.setUrls([QUrl.fromLocalFile(str(caminho))])
+
+    from pathlib import Path
+
+    widget = WidgetFoto("Fulano", None)
+    assert Path(widget._caminho_imagem_arrastada(mime_data)) == caminho
+
+
+def test_widget_foto_caminho_imagem_arrastada_rejeita_extensao_invalida(qapp, tmp_path):
+    from PySide6.QtCore import QMimeData, QUrl
+
+    from ui.widgets import WidgetFoto
+
+    caminho = tmp_path / "documento.pdf"
+    caminho.write_bytes(b"conteudo")
+
+    mime_data = QMimeData()
+    mime_data.setUrls([QUrl.fromLocalFile(str(caminho))])
+
+    widget = WidgetFoto("Fulano", None)
+    assert widget._caminho_imagem_arrastada(mime_data) is None
+
+
+def test_widget_foto_caminho_imagem_arrastada_sem_urls_devolve_none(qapp):
+    from PySide6.QtCore import QMimeData
+
+    from ui.widgets import WidgetFoto
+
+    widget = WidgetFoto("Fulano", None)
+    assert widget._caminho_imagem_arrastada(QMimeData()) is None
+
+
+def test_widget_foto_drop_event_usa_o_arquivo_solto(qapp, monkeypatch, tmp_path):
+    """Soltar um arquivo de imagem sobre o widget dispara o mesmo fluxo de
+    "Escolher imagem..." (abre o editor, guarda o original)."""
+    from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl
+    from PySide6.QtGui import QDropEvent
+
+    from ui.widgets import WidgetFoto
+
+    from PySide6.QtGui import QColor, QPixmap
+
+    caminho = tmp_path / "foto.png"
+    pixmap = QPixmap(20, 20)
+    pixmap.fill(QColor("red"))
+    pixmap.save(str(caminho), "PNG")
+
+    widget = WidgetFoto("Fulano", None)
+    chamadas = []
+    monkeypatch.setattr(widget, "_usar_arquivo", lambda c: chamadas.append(c))
+
+    mime_data = QMimeData()
+    mime_data.setUrls([QUrl.fromLocalFile(str(caminho))])
+    evento = QDropEvent(QPointF(10, 10), Qt.CopyAction, mime_data, Qt.LeftButton, Qt.NoModifier)
+
+    from pathlib import Path
+
+    widget.dropEvent(evento)
+    assert len(chamadas) == 1
+    assert Path(chamadas[0]) == caminho
+
+
+def test_widget_foto_drop_event_ignora_arquivo_invalido(qapp, tmp_path):
+    from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl
+    from PySide6.QtGui import QDropEvent
+
+    from ui.widgets import WidgetFoto
+
+    caminho = tmp_path / "documento.pdf"
+    caminho.write_bytes(b"conteudo")
+
+    widget = WidgetFoto("Fulano", None)
+    mime_data = QMimeData()
+    mime_data.setUrls([QUrl.fromLocalFile(str(caminho))])
+    evento = QDropEvent(QPointF(10, 10), Qt.CopyAction, mime_data, Qt.LeftButton, Qt.NoModifier)
+
+    widget.dropEvent(evento)  # nao deve levantar excecao nem mudar nada
+    assert widget.foto_bytes() is None
+
+
 def test_widget_foto_editar_sem_foto_nao_faz_nada(qapp, monkeypatch):
     from ui.ajustar_foto_dialog import AjustarFotoDialog
     from ui.widgets import WidgetFoto

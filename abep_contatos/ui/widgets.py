@@ -201,7 +201,9 @@ class WidgetFoto(QWidget):
     (a foto atual, ou o avatar de iniciais de sempre enquanto nao tem foto)
     + botoes "Escolher imagem...", "Editar foto..." e "Remover foto". Mesmo
     padrao ja usado pro logotipo do painel (ui/settings_dialog.py), so que
-    reutilizavel.
+    reutilizavel. Tambem aceita arrastar um arquivo de imagem direto pra
+    cima do widget (ver dropEvent), como atalho pro botao "Escolher
+    imagem...".
 
     Guarda DOIS conjuntos de bytes: `_foto_bytes` (o recorte circular,
     enquadrado/girado -- so pra exibir o avatar na tela, com tamanho
@@ -211,6 +213,7 @@ class WidgetFoto(QWidget):
     de verdade)."""
 
     _TAMANHO_PREVIEW = 72
+    _EXTENSOES_ACEITAS = (".png", ".jpg", ".jpeg", ".bmp")
 
     def __init__(
         self,
@@ -225,6 +228,7 @@ class WidgetFoto(QWidget):
         self._foto_bytes: bytes | None = foto_atual
         self._foto_original_bytes: bytes | None = foto_original_atual
         self._foto_original_mime: str | None = foto_original_mime_atual
+        self.setAcceptDrops(True)  # arrastar um arquivo de imagem solta aqui, ver dropEvent()
 
         layout_geral = QVBoxLayout(self)
         layout_geral.setContentsMargins(0, 0, 0, 0)
@@ -234,6 +238,7 @@ class WidgetFoto(QWidget):
         layout.setSpacing(10)
 
         self._rotulo_preview = QLabel()
+        self._rotulo_preview.setToolTip("Arraste uma imagem aqui pra trocar a foto")
         layout.addWidget(self._rotulo_preview)
 
         botoes = QVBoxLayout()
@@ -283,11 +288,44 @@ class WidgetFoto(QWidget):
         )
         if not caminho:
             return
+        self._usar_arquivo(caminho)
+
+    def _usar_arquivo(self, caminho: str) -> None:
+        """Ponto comum entre "Escolher imagem..." e soltar um arquivo
+        arrastado (dropEvent) -- os dois so precisam de um CAMINHO de
+        arquivo, o resto (abrir o editor, guardar original) e identico."""
         pixmap_original = QPixmap(caminho)
         if pixmap_original.isNull():
             return
         dados_originais, mime_original = imagens.ler_bytes_originais(caminho)
         self._ajustar_e_salvar(pixmap_original, novo_original=(dados_originais, mime_original))
+
+    # -- arrastar e soltar ------------------------------------------------------
+
+    def _caminho_imagem_arrastada(self, mime_data) -> str | None:
+        """Devolve o caminho do PRIMEIRO arquivo local arrastado que tem
+        uma extensao de imagem aceita, ou None se nao tiver nenhum (ex.:
+        arrastaram texto, ou um arquivo de outro tipo)."""
+        if not mime_data.hasUrls():
+            return None
+        for url in mime_data.urls():
+            if not url.isLocalFile():
+                continue
+            caminho = url.toLocalFile()
+            if caminho.lower().endswith(self._EXTENSOES_ACEITAS):
+                return caminho
+        return None
+
+    def dragEnterEvent(self, evento) -> None:  # noqa: N802 (nome do metodo original do Qt)
+        if self._caminho_imagem_arrastada(evento.mimeData()) is not None:
+            evento.acceptProposedAction()
+
+    def dropEvent(self, evento) -> None:  # noqa: N802
+        caminho = self._caminho_imagem_arrastada(evento.mimeData())
+        if caminho is None:
+            return
+        evento.acceptProposedAction()
+        self._usar_arquivo(caminho)
 
     def _editar_foto(self) -> None:
         """Reabre o editor de enquadrar/girar -- a partir do arquivo
