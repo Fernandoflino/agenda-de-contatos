@@ -891,6 +891,24 @@ def test_widget_foto_remover_limpa_original_tambem(qapp):
     assert widget.foto_original_mime() is None
 
 
+def test_widget_foto_avisa_quando_tem_foto_mas_nao_tem_original(qapp):
+    """Foto cadastrada ANTES do arquivo original passar a ser guardado --
+    so tem FOTO, sem FOTO_ORIGINAL. Precisa avisar, senao a pessoa acha que
+    o programa ainda esta recortando o arquivo original de verdade."""
+    from ui.widgets import WidgetFoto
+
+    foto_atual = _png_bytes_teste(qapp)
+
+    sem_original = WidgetFoto("Fulano", foto_atual)  # sem foto_original_atual
+    assert not sem_original._aviso_sem_original.isHidden()
+
+    com_original = WidgetFoto("Fulano", foto_atual, foto_atual, "image/png")
+    assert com_original._aviso_sem_original.isHidden()
+
+    sem_foto_nenhuma = WidgetFoto("Fulano", None)
+    assert sem_foto_nenhuma._aviso_sem_original.isHidden()  # nada pra avisar ainda
+
+
 def test_widget_foto_editar_sem_foto_nao_faz_nada(qapp, monkeypatch):
     from ui.ajustar_foto_dialog import AjustarFotoDialog
     from ui.widgets import WidgetFoto

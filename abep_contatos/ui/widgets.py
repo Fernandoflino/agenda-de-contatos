@@ -226,8 +226,11 @@ class WidgetFoto(QWidget):
         self._foto_original_bytes: bytes | None = foto_original_atual
         self._foto_original_mime: str | None = foto_original_mime_atual
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout_geral = QVBoxLayout(self)
+        layout_geral.setContentsMargins(0, 0, 0, 0)
+        layout_geral.setSpacing(4)
+
+        layout = QHBoxLayout()
         layout.setSpacing(10)
 
         self._rotulo_preview = QLabel()
@@ -246,6 +249,19 @@ class WidgetFoto(QWidget):
         botoes.addWidget(self._botao_remover)
         layout.addLayout(botoes)
         layout.addStretch()
+        layout_geral.addLayout(layout)
+
+        # So aparece pra fotos cadastradas ANTES do arquivo original passar
+        # a ser guardado separado -- pra essas, so sobrou o recorte antigo
+        # (sem esse aviso, quem baixasse/editasse essa foto acharia que o
+        # programa ainda estava recortando o arquivo original de verdade).
+        self._aviso_sem_original = QLabel(
+            "Esta foto foi cadastrada antes do arquivo original passar a ser guardado -- "
+            "escolha a imagem de novo pra manter o original ao baixar/editar depois."
+        )
+        self._aviso_sem_original.setProperty("papel", "subtitulo")
+        self._aviso_sem_original.setWordWrap(True)
+        layout_geral.addWidget(self._aviso_sem_original)
 
         self._atualizar_preview()
 
@@ -259,6 +275,7 @@ class WidgetFoto(QWidget):
         self._rotulo_preview.setPixmap(avatar.grab())
         self._botao_editar.setEnabled(bool(self._foto_bytes))
         self._botao_remover.setEnabled(bool(self._foto_bytes))
+        self._aviso_sem_original.setVisible(bool(self._foto_bytes) and not self._foto_original_bytes)
 
     def _escolher_imagem(self) -> None:
         caminho, _ = QFileDialog.getOpenFileName(
