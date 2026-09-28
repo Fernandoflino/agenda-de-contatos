@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -42,6 +41,7 @@ from ui.dialogs import mostrar_erro, mostrar_info
 from ui.window_utils import preparar_janela
 
 _CATEGORIA_TODAS = "(todas)"
+_CAMPO_FILTRO_NENHUM = "(nenhum)"
 
 
 def _lista_marcavel(itens: list[str], marcados: set[str] | None = None) -> QListWidget:
@@ -158,10 +158,12 @@ class ExportDialog(QDialog):
         layout = QVBoxLayout(pagina)
 
         linha_filtro = QHBoxLayout()
-        self.campo_filtro_campo = QLineEdit()
-        self.campo_filtro_campo.setPlaceholderText("nome do campo (opcional, ex.: CARGO)")
-        self.campo_filtro_valor = QLineEdit()
-        self.campo_filtro_valor.setPlaceholderText("valor a filtrar (opcional)")
+        self.campo_filtro_campo = QComboBox()
+        self.campo_filtro_campo.currentTextChanged.connect(self._recarregar_valores_filtro)
+        self.campo_filtro_valor = QComboBox()
+        self.campo_filtro_valor.setEditable(True)
+        self.campo_filtro_valor.setInsertPolicy(QComboBox.NoInsert)
+        self.campo_filtro_valor.lineEdit().setPlaceholderText("valor a filtrar (opcional)")
         linha_filtro.addWidget(QLabel("Filtro:"))
         linha_filtro.addWidget(self.campo_filtro_campo)
         linha_filtro.addWidget(self.campo_filtro_valor)
@@ -183,7 +185,33 @@ class ExportDialog(QDialog):
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Checked)
             self.lista_colunas_simples.addItem(item)
+
+        atual = self.campo_filtro_campo.currentText()
+        self.campo_filtro_campo.blockSignals(True)
+        self.campo_filtro_campo.clear()
+        self.campo_filtro_campo.addItem(_CAMPO_FILTRO_NENHUM)
+        self.campo_filtro_campo.addItems(colunas)
+        indice = self.campo_filtro_campo.findText(atual)
+        self.campo_filtro_campo.setCurrentIndex(indice if indice >= 0 else 0)
+        self.campo_filtro_campo.blockSignals(False)
+        self._recarregar_valores_filtro(self.campo_filtro_campo.currentText())
+
         self._recarregar_cargos_disponiveis()
+
+    def _recarregar_valores_filtro(self, campo: str) -> None:
+        """Preenche a caixa "valor a filtrar" com os valores ja existentes
+        pro campo escolhido acima -- so pra sugerir, o campo continua
+        editavel pra permitir filtrar por um texto parcial."""
+        atual = self.campo_filtro_valor.currentText()
+        self.campo_filtro_valor.blockSignals(True)
+        self.campo_filtro_valor.clear()
+        tabela = self.combo_tabela.currentText()
+        if campo and campo != _CAMPO_FILTRO_NENHUM and tabela:
+            registros = records.get_records(self.conn, tabela)
+            valores = sorted({str(r[campo]) for r in registros if r.get(campo)}, key=str.lower)
+            self.campo_filtro_valor.addItems(valores)
+        self.campo_filtro_valor.setCurrentText(atual)
+        self.campo_filtro_valor.blockSignals(False)
 
     # -- aba "Mesclado por empresa" -------------------------------------
 
@@ -272,11 +300,12 @@ class ExportDialog(QDialog):
         tabela = self.combo_tabela.currentText()
         if self.abas.currentIndex() == 0:
             colunas = _itens_marcados(self.lista_colunas_simples)
+            campo_filtro = self.campo_filtro_campo.currentText()
             colunas_disponiveis, linhas = exporter.montar_exportacao_simples(
                 self.conn, tabela,
                 campos_selecionados=colunas or None,
-                filtro_campo=self.campo_filtro_campo.text().strip() or None,
-                filtro_valor=self.campo_filtro_valor.text().strip(),
+                filtro_campo=campo_filtro if campo_filtro and campo_filtro != _CAMPO_FILTRO_NENHUM else None,
+                filtro_valor=self.campo_filtro_valor.currentText().strip(),
                 ids_permitidos=self.ids_selecionados,
             )
         else:
