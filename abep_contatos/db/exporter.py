@@ -44,6 +44,16 @@ _MAPA_CAMPO_EMPRESA = {
 }
 
 
+def nome_coluna_arquivo(nome: str) -> str:
+    """Nome de uma coluna como ele aparece no ARQUIVO exportado -- sem
+    espaco, pra poder ser usado como nome de variavel numa mala direta
+    (Word etc.). " - " (separador dos blocos do modo Mesclado, ex.:
+    "Presidente - NOME") vira um unico "_", nao "_-_". So afeta o titulo
+    escrito no arquivo -- a busca do valor de cada linha continua usando o
+    nome original da coluna (ver exportar_xlsx/exportar_csv)."""
+    return nome.replace(" - ", "_").replace(" ", "_")
+
+
 def _valor_celula(valor):
     """Converte um valor pro formato de uma celula de planilha -- uma lista
     (ex.: CATEGORIAS, que uma pessoa pode ter varias) vira texto juntando os
@@ -230,7 +240,7 @@ def exportar_xlsx(columns: list[str], rows: list[dict], caminho: str) -> None:
         raise ValueError("Nenhum registro para exportar.")
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.append(columns)
+    ws.append([nome_coluna_arquivo(c) for c in columns])
     for r in rows:
         ws.append([r.get(c, "") for c in columns])
     wb.save(caminho)
@@ -245,6 +255,6 @@ def exportar_csv(columns: list[str], rows: list[dict], caminho: str) -> None:
     # reconhecer acentos corretamente ao abrir o CSV no Windows.
     with open(caminho, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f, quoting=csv.QUOTE_ALL)
-        writer.writerow(columns)
+        writer.writerow([nome_coluna_arquivo(c) for c in columns])
         for r in rows:
             writer.writerow([r.get(c, "") for c in columns])

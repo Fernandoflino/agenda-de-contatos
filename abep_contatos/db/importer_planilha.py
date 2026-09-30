@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 import openpyxl
 
 from . import categorias, records, tables
+from .exporter import nome_coluna_arquivo
 from .schema import EMPRESAS, PESSOAS
 
 _CAMPOS_EMPRESA = ["SIGLA", "SIGLA_EMPRESA", "EMPRESA"]
@@ -132,6 +133,24 @@ def _chave_empresa(linha: dict, campos_empresa: list[str]) -> tuple:
     return tuple(str(linha.get(c) or "").strip().lower() for c in campos_empresa)
 
 
+def _mapear_colunas_para_schema(columns: list[str], existentes: set[str]) -> dict[str, str]:
+    """P/ cada cabecalho do arquivo, decide qual coluna real ele representa:
+    bate exato -> usa ela; bate so depois de normalizar (espaco/" - " ->
+    "_", a mesma troca que a exportacao faz no titulo) -> usa a coluna real
+    correspondente; nao bate com nada -> e coluna nova mesmo, mantem o nome
+    como veio (sera criada assim)."""
+    normalizados = {nome_coluna_arquivo(c): c for c in existentes}
+    mapa = {}
+    for c in columns:
+        if c in existentes:
+            mapa[c] = c
+        elif c in normalizados:
+            mapa[c] = normalizados[c]
+        else:
+            mapa[c] = c
+    return mapa
+
+
 def importar_planilha(conn: sqlite3.Connection, tabela: str, columns: list[str], rows: list[dict],
                        usuario: str = "sistema", aplicar: bool = True) -> ResumoImportacaoPlanilha:
     resumo = ResumoImportacaoPlanilha()
@@ -140,13 +159,14 @@ def importar_planilha(conn: sqlite3.Connection, tabela: str, columns: list[str],
     tem_empresa = tabela != EMPRESAS and "ID_EMPRESA" in existentes
     campos_empresa = [c for c in _CAMPOS_EMPRESA if c in columns] if tem_empresa else []
     tem_categoria = tabela == PESSOAS and "CATEGORIA" in columns
+    mapa_colunas = _mapear_colunas_para_schema(columns, existentes)
 
     for coluna in columns:
-        if coluna and coluna != "ID" and coluna not in campos_empresa and coluna not in existentes:
+        if coluna and coluna != "ID" and coluna not in campos_empresa and mapa_colunas[coluna] not in existentes:
             resumo.colunas_novas.append(coluna)
             if aplicar:
-                tables.add_column(conn, tabela, coluna, usuario=usuario)
-            existentes.add(coluna)
+                tables.add_column(conn, tabela, mapa_colunas[coluna], usuario=usuario)
+            existentes.add(mapa_colunas[coluna])
 
     # Cache empresa (nova ou ja existente) resolvida a partir de
     # SIGLA/SIGLA_EMPRESA/EMPRESA -> ID_EMPRESA, pra nao criar a mesma
@@ -163,7 +183,10 @@ def importar_planilha(conn: sqlite3.Connection, tabela: str, columns: list[str],
         campos_excluidos_de_dados = set(campos_empresa)
         if tem_categoria:
             campos_excluidos_de_dados.add("CATEGORIA")
-        dados = {c: linha.get(c, "") for c in columns if c != "ID" and c not in campos_excluidos_de_dados}
+        dados = {
+            mapa_colunas[c]: linha.get(c, "") for c in columns
+            if c != "ID" and c not in campos_excluidos_de_dados
+        }
 
         if campos_empresa and any(str(linha.get(c) or "").strip() for c in campos_empresa):
             chave = _chave_empresa(linha, campos_empresa)

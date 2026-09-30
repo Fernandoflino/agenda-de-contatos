@@ -218,6 +218,42 @@ def test_round_trip_exportar_e_reimportar_sem_editar_nao_muda_nada(conn, tmp_pat
     assert len(records.get_records(conn, "EMPRESAS")) == 1
 
 
+def test_cabecalho_com_underscore_atualiza_coluna_real_com_espaco_no_nome(conn):
+    """A exportacao troca espaco por "_" no titulo (pra servir de variavel
+    de mala direta) -- reimportar esse arquivo precisa continuar
+    reconhecendo "DATA_DE_NASCIMENTO" como sendo a coluna real "DATA DE
+    NASCIMENTO", em vez de achar que e uma coluna nova."""
+    id_ana = records.create_record(conn, "PESSOAS", {"NOME": "Ana", "DATA DE NASCIMENTO": "2000-01-01"})
+    columns = ["ID", "NOME", "DATA_DE_NASCIMENTO"]
+    rows = [{"ID": str(id_ana), "NOME": "Ana", "DATA_DE_NASCIMENTO": "1999-12-31"}]
+
+    resumo = importer_planilha.importar_planilha(conn, "PESSOAS", columns, rows)
+
+    assert resumo.colunas_novas == []
+    assert "DATA_DE_NASCIMENTO" not in get_schema(conn, "PESSOAS")
+    atualizada = records.get_record(conn, "PESSOAS", id_ana)
+    assert atualizada["DATA DE NASCIMENTO"] == "1999-12-31"
+
+
+def test_round_trip_com_coluna_de_espaco_no_nome_nao_cria_coluna_nova(conn, tmp_path):
+    id_empresa = records.create_record(conn, "EMPRESAS", {"SIGLA": "RJ", "EMPRESA": "Proderj"})
+    records.create_record(conn, "PESSOAS", {
+        "ID_EMPRESA": id_empresa, "NOME": "Ana", "WHATSAPP ASSESSOR": "63 98111-1999",
+    })
+
+    colunas, linhas = exporter.montar_exportacao_simples(conn, "PESSOAS")
+    caminho = tmp_path / "export.csv"
+    exporter.exportar_csv(colunas, linhas, str(caminho))
+
+    lidas_colunas, lidas_linhas = importer_planilha.ler_planilha(str(caminho))
+    resumo = importer_planilha.importar_planilha(conn, "PESSOAS", lidas_colunas, lidas_linhas)
+
+    assert resumo.colunas_novas == []
+    assert resumo.atualizados == 1
+    pessoas = records.get_records(conn, "PESSOAS")
+    assert pessoas[0]["WHATSAPP ASSESSOR"] == "63 98111-1999"
+
+
 def test_ler_planilha_csv_com_cabecalho_duplicado_nao_perde_a_primeira_coluna(tmp_path):
     """Duas colunas com o mesmo nome (arquivo editado a mao, ou juntando
     duas exportacoes) nao podem fazer a segunda apagar silenciosamente o

@@ -204,3 +204,62 @@ def test_exportar_xlsx_e_csv(conn, tmp_path):
     exporter.exportar_csv(columns, rows, str(caminho_csv))
     conteudo = caminho_csv.read_text(encoding="utf-8-sig")
     assert "Ana" in conteudo
+
+
+def test_nome_coluna_arquivo_troca_espaco_e_traco_por_underscore():
+    assert exporter.nome_coluna_arquivo("DATA DE NASCIMENTO") == "DATA_DE_NASCIMENTO"
+    assert exporter.nome_coluna_arquivo("Presidente - NOME") == "Presidente_NOME"
+    assert exporter.nome_coluna_arquivo("NOME") == "NOME"
+
+
+def test_exportar_xlsx_troca_espaco_por_underscore_no_cabecalho(conn, tmp_path):
+    id_empresa = records.create_record(conn, "EMPRESAS", {"SIGLA": "ABC", "EMPRESA": "Empresa ABC"})
+    records.create_record(conn, "PESSOAS", {
+        "ID_EMPRESA": id_empresa, "NOME": "Ana", "DATA DE NASCIMENTO": "2000-01-01",
+    })
+    columns, rows = exporter.montar_exportacao_simples(conn, "PESSOAS")
+
+    caminho = tmp_path / "export.xlsx"
+    exporter.exportar_xlsx(columns, rows, str(caminho))
+
+    import openpyxl
+    wb = openpyxl.load_workbook(str(caminho))
+    cabecalho = [c.value for c in next(wb.active.iter_rows(min_row=1, max_row=1))]
+    assert "DATA_DE_NASCIMENTO" in cabecalho
+    assert "DATA DE NASCIMENTO" not in cabecalho
+
+    linha = next(wb.active.iter_rows(min_row=2, max_row=2, values_only=True))
+    indice_data = cabecalho.index("DATA_DE_NASCIMENTO")
+    assert linha[indice_data] == "2000-01-01"
+
+
+def test_exportar_csv_troca_espaco_por_underscore_no_cabecalho(conn, tmp_path):
+    id_empresa = records.create_record(conn, "EMPRESAS", {"SIGLA": "ABC", "EMPRESA": "Empresa ABC"})
+    records.create_record(conn, "PESSOAS", {
+        "ID_EMPRESA": id_empresa, "NOME": "Ana", "DATA DE NASCIMENTO": "2000-01-01",
+    })
+    columns, rows = exporter.montar_exportacao_simples(conn, "PESSOAS")
+
+    caminho = tmp_path / "export.csv"
+    exporter.exportar_csv(columns, rows, str(caminho))
+
+    conteudo = caminho.read_text(encoding="utf-8-sig")
+    primeira_linha = conteudo.splitlines()[0]
+    assert "DATA_DE_NASCIMENTO" in primeira_linha
+    assert "DATA DE NASCIMENTO" not in primeira_linha
+
+
+def test_exportar_mesclado_troca_traco_por_underscore_no_cabecalho(conn, tmp_path):
+    id_empresa = records.create_record(conn, "EMPRESAS", {"SIGLA": "ABC", "EMPRESA": "Empresa ABC"})
+    records.create_record(conn, "PESSOAS", {"ID_EMPRESA": id_empresa, "CARGO": "Presidente", "NOME": "Ana"})
+    columns, rows = exporter.montar_exportacao_mesclada(
+        conn, "PESSOAS", valores_agrupador=["Presidente"], campo_agrupador="CARGO",
+        campos_por_valor={"Presidente": ["NOME"]},
+    )
+
+    caminho = tmp_path / "mesclado.csv"
+    exporter.exportar_csv(columns, rows, str(caminho))
+
+    primeira_linha = caminho.read_text(encoding="utf-8-sig").splitlines()[0]
+    assert "Presidente_NOME" in primeira_linha
+    assert "Presidente - NOME" not in primeira_linha
