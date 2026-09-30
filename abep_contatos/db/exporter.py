@@ -157,6 +157,7 @@ def montar_exportacao_mesclada(conn: sqlite3.Connection, tabela_pessoas: str,
         return [
             c for c in campos
             if c not in ("ID_EMPRESA", campo_agrupador)
+            and c not in CAMPOS_FOTO_OCULTOS
             and not isinstance((registros[0] if registros else {}).get(c), list)
         ]
 

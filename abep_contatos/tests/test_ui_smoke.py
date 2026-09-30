@@ -215,6 +215,82 @@ def test_lista_registros_view_varios_filtros_combinam_com_e(banco_com_dados):
     assert all(categoria in (r.get("CATEGORIAS") or []) for r in view._registros_filtrados)
 
 
+def test_lista_registros_view_busca_agrupa_digitacao_rapida_num_so_filtro(banco_com_dados):
+    """Regressao: o debounce da busca (250ms) precisa agrupar teclas
+    digitadas em sequencia rapida num UNICO disparo do filtro, em vez de
+    filtrar a cada tecla."""
+    from PySide6.QtTest import QTest
+
+    view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    chamadas = []
+    original = view._aplicar_filtro
+
+    def _espiao():
+        chamadas.append(view.campo_busca.text())
+        original()
+
+    view._aplicar_filtro = _espiao
+
+    for letra in "Ana":
+        view.campo_busca.setText(view.campo_busca.text() + letra)
+
+    assert chamadas == []  # nada rodou ainda -- o timer nao disparou
+
+    QTest.qWait(300)  # > 250ms do debounce
+
+    assert chamadas == ["Ana"]  # disparou 1x so, com o texto final
+
+
+def test_lista_registros_view_busca_letra_por_letra_ainda_filtra_corretamente(banco_com_dados):
+    """Complementar ao teste acima: mesmo digitando devagar (cada letra
+    disparando o filtro sozinha, sem agrupar), o resultado final continua
+    correto -- a otimizacao de nao reconsultar o branding a cada linha
+    (ver _popular_tabela) nao pode mudar o valor filtrado."""
+    from PySide6.QtTest import QTest
+
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    nome = "Fulano de Tal"
+    id_pessoa = records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": nome})
+
+    view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    for i in range(1, len(nome) + 1):
+        view.campo_busca.setText(nome[:i])
+        QTest.qWait(300)  # deixa o debounce disparar a cada letra
+
+    ids_filtrados = {r["ID"] for r in view._registros_filtrados}
+    assert id_pessoa in ids_filtrados
+
+
+def test_lista_registros_view_popular_tabela_nao_repete_consulta_de_branding(banco_com_dados, monkeypatch):
+    """Regressao de performance: cor_texto_mutado() (usada 2x por linha, pro
+    icone de nota e pro icone do menu de acoes) nao pode consultar o banco
+    (settings.obter_branding) a cada linha -- isso deixava a busca lenta a
+    cada tecla digitada com uma pagina cheia (ate 40 consultas nao-cacheadas
+    so pra popular uma pagina de 20 linhas)."""
+    from db import settings
+
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ZZZ", "EMPRESA": "Empresa ZZZ"})
+    for nome in ("Ana", "Bruno", "Carla", "Duda", "Elis"):
+        records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": nome})
+
+    chamadas = []
+    original = settings.obter_branding
+
+    def _espiao(conn):
+        chamadas.append(1)
+        return original(conn)
+
+    monkeypatch.setattr(settings, "obter_branding", _espiao)
+
+    view = ListaRegistrosView(banco_com_dados, PESSOAS, "admin")
+    assert view.tabela_widget.rowCount() > 1  # pagina com varias linhas de verdade
+
+    chamadas.clear()
+    view._popular_tabela()
+
+    assert len(chamadas) <= 2  # nao proporcional ao numero de linhas da pagina
+
+
 def test_lista_registros_view_restaura_filtro_largura_e_itens_por_pagina(banco_com_dados):
     """Preferencias por usuario (ver db/preferencias.py): o filtro montado, a
     largura escolhida pro painel de detalhes e os itens por pagina precisam

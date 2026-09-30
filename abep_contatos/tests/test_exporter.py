@@ -149,6 +149,49 @@ def test_exportacao_simples_junta_varias_categorias_com_virgula(conn):
     assert linha["CATEGORIA"] == "Presidentes, Diretores Tecnicos"
 
 
+def test_exportacao_mesclada_nao_inclui_foto(conn):
+    """FOTO/FOTO_MIME/FOTO_ORIGINAL/FOTO_ORIGINAL_MIME sao BLOB -- assim como
+    no modo Simples (test_colunas_exportaveis_nao_inclui_foto), o modo
+    Mesclado nao pode incluir esses campos crus num bloco de encaixe: alem
+    de nao fazerem sentido numa celula, quebravam a exportacao (bytes crus
+    de imagem tentados como texto)."""
+    id_empresa = records.create_record(conn, "EMPRESAS", {"SIGLA": "ABC", "EMPRESA": "Empresa ABC"})
+    records.create_record(conn, "PESSOAS", {
+        "ID_EMPRESA": id_empresa, "CARGO": "Presidente", "NOME": "Ana",
+        "FOTO": b"\x89PNG\r\n\x1a\n...", "FOTO_MIME": "image/png",
+        "FOTO_ORIGINAL": b"\x89PNG\r\n\x1a\n...", "FOTO_ORIGINAL_MIME": "image/png",
+    })
+
+    columns, rows = exporter.montar_exportacao_mesclada(
+        conn, "PESSOAS", valores_agrupador=["Presidente"], campo_agrupador="CARGO",
+    )
+
+    assert not any(c.endswith(" - FOTO") for c in columns)
+    assert not any(c.endswith(" - FOTO_MIME") for c in columns)
+    assert not any(c.endswith(" - FOTO_ORIGINAL") for c in columns)
+    assert not any(c.endswith(" - FOTO_ORIGINAL_MIME") for c in columns)
+    assert not any(isinstance(v, (bytes, bytearray)) for r in rows for v in r.values())
+
+
+def test_exportacao_mesclada_com_foto_nao_quebra_xlsx_e_csv(conn, tmp_path):
+    """Regressao: exportar o modo Mesclado com gente que tem foto cadastrada
+    lancava UnicodeDecodeError (bytes crus de imagem indo pra uma celula)."""
+    id_empresa = records.create_record(conn, "EMPRESAS", {"SIGLA": "ABC", "EMPRESA": "Empresa ABC"})
+    records.create_record(conn, "PESSOAS", {
+        "ID_EMPRESA": id_empresa, "CARGO": "Presidente", "NOME": "Ana",
+        "FOTO": b"\x89PNG\r\n\x1a\n...", "FOTO_MIME": "image/png",
+    })
+
+    columns, rows = exporter.montar_exportacao_mesclada(
+        conn, "PESSOAS", valores_agrupador=["Presidente"], campo_agrupador="CARGO",
+    )
+
+    exporter.exportar_xlsx(columns, rows, str(tmp_path / "mesclado.xlsx"))
+    exporter.exportar_csv(columns, rows, str(tmp_path / "mesclado.csv"))
+    assert (tmp_path / "mesclado.xlsx").is_file()
+    assert (tmp_path / "mesclado.csv").is_file()
+
+
 def test_exportar_xlsx_e_csv(conn, tmp_path):
     _preparar(conn)
     columns, rows = exporter.montar_exportacao_simples(conn, "PESSOAS")

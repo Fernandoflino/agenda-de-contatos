@@ -959,6 +959,11 @@ class ListaRegistrosView(QWidget):
         # em vez de consultar o banco de novo a cada vez que a tabela e
         # redesenhada, pra desenhar o iconezinho de nota ao lado do nome.
         ids_com_anotacao = self._ids_com_anotacao_cache
+        # Igual ids_com_anotacao acima: calculado uma unica vez aqui, nao a
+        # cada linha -- cor_texto_mutado() consulta o banco (APP_BRANDING)
+        # sem cache nenhum, e o valor e sempre o mesmo dentro de uma unica
+        # renderizacao da tabela.
+        cor_icone = cor_texto_mutado(self.conn)
 
         for linha, registro in enumerate(pagina):
             id_registro = registro.get("ID")
@@ -981,7 +986,7 @@ class ListaRegistrosView(QWidget):
             layout_titulo.addWidget(self._criar_avatar_registro(registro, titulo_valor, tamanho=30))
             if id_registro in ids_com_anotacao:
                 rotulo_nota = QLabel()
-                rotulo_nota.setPixmap(icons.icone("nota", cor_texto_mutado(self.conn)).pixmap(14, 14))
+                rotulo_nota.setPixmap(icons.icone("nota", cor_icone).pixmap(14, 14))
                 rotulo_nota.setToolTip("Este registro tem uma anotação")
                 layout_titulo.addWidget(rotulo_nota)
             rotulo_titulo_celula = QLabel(titulo_valor)
@@ -1003,7 +1008,7 @@ class ListaRegistrosView(QWidget):
             # Usa o SVG "menu" (3 pontinhos) em vez do caractere "⋮" -- esse
             # glifo de texto sai fraco/quase invisivel em varias fontes,
             # principalmente no tema escuro (bug relatado pelo usuario).
-            botao_acoes.setIcon(icons.icone("menu", cor_texto_mutado(self.conn)))
+            botao_acoes.setIcon(icons.icone("menu", cor_icone))
             botao_acoes.setPopupMode(QToolButton.InstantPopup)
             # O icone ja deixa claro que abre um menu -- sem isso, o Qt
             # desenha TAMBEM uma setinha de dropdown ao lado, apertada
