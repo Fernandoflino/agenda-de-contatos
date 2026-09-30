@@ -39,31 +39,69 @@ def confirmar_exclusao(parent: QWidget, rotulo: str, tipo: str = "registro") -> 
     return resposta == QMessageBox.Yes
 
 
-def confirmar_abrir_banco_em_uso(parent: QWidget, info: InfoLock) -> bool:
-    """Avisa que este banco parece estar aberto em outra sessao (mesma
-    trava .lock ainda "viva", ver db/lock.py) e pergunta se quer abrir
-    mesmo assim.
+TENTAR_NOVAMENTE = "tentar_novamente"
+CANCELAR = "cancelar"
+FORCAR_ABERTURA = "forcar_abertura"
 
-    Devolve True se o usuario confirmou que quer abrir mesmo assim, False
-    se preferiu cancelar."""
+
+def banco_em_uso_dialog(parent: QWidget, info: InfoLock) -> str:
+    """Avisa que este banco esta aberto em outra sessao (mesma trava .lock
+    ainda "viva", ver db/lock.py) e BLOQUEIA a abertura por padrao -- ao
+    contrario de um simples aviso, nao existe um jeito casual de "abrir
+    mesmo assim".
+
+    Isso existe porque o banco costuma ficar numa pasta do OneDrive (nao
+    numa pasta de rede de verdade): se duas pessoas escreverem nele ao mesmo
+    tempo, o OneDrive nao sabe fazer o merge de um arquivo binario e cria
+    copias duplicadas com o nome do computador (ex.: "contatos-PC-X.abepdb").
+    Bloquear a abertura evita que isso aconteca -- so uma pessoa mexe no
+    banco por vez.
+
+    Devolve TENTAR_NOVAMENTE, CANCELAR ou FORCAR_ABERTURA (esta ultima so
+    depois de uma segunda confirmacao explicita, pra emergencias tipo uma
+    trava presa por bug)."""
     try:
         desde = datetime.fromisoformat(info.aberto_em).astimezone().strftime("%d/%m %H:%M")
     except ValueError:
         desde = "algum momento recente"
 
-    resposta = QMessageBox.question(
-        parent,
-        "Banco em uso",
-        (
-            f'Este banco parece estar aberto no computador "{info.maquina}" '
-            f'(usuário "{info.usuario_os}") desde {desde}.\n\n'
-            "Abrir mesmo assim pode causar conflitos se as duas pessoas "
-            "editarem ao mesmo tempo. Deseja continuar mesmo assim?"
-        ),
-        QMessageBox.Yes | QMessageBox.No,
-        QMessageBox.No,  # o botao "Nao" comeca selecionado, pra um Enter acidental nao abrir mesmo assim
+    caixa = QMessageBox(parent)
+    caixa.setIcon(QMessageBox.Warning)
+    caixa.setWindowTitle("Banco em uso")
+    caixa.setText(
+        f'Este banco está sendo usado agora no computador "{info.maquina}" '
+        f'(usuário "{info.usuario_os}") desde {desde}.\n\n'
+        "Pra evitar duplicar o arquivo no OneDrive, espere essa pessoa "
+        "terminar e feche o programa dela antes de tentar de novo."
     )
-    return resposta == QMessageBox.Yes
+    botao_tentar = caixa.addButton("Tentar novamente", QMessageBox.AcceptRole)
+    caixa.addButton("Cancelar", QMessageBox.RejectRole)
+    botao_forcar = caixa.addButton("Forçar abertura...", QMessageBox.DestructiveRole)
+    caixa.setDefaultButton(botao_tentar)
+    caixa.exec()
+
+    if caixa.clickedButton() is botao_forcar:
+        confirmacao = QMessageBox.warning(
+            parent,
+            "Forçar abertura",
+            (
+                "Se a outra pessoa realmente ainda estiver com esse banco "
+                "aberto, forçar a abertura agora pode fazer o OneDrive "
+                "duplicar o arquivo (cada um salvando numa cópia diferente, "
+                "sem juntar as alterações depois).\n\n"
+                "Só continue se tiver certeza de que a outra sessão travou "
+                "ou foi encerrada sem fechar direito. Forçar mesmo assim?"
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirmacao == QMessageBox.Yes:
+            return FORCAR_ABERTURA
+        return CANCELAR
+
+    if caixa.clickedButton() is botao_tentar:
+        return TENTAR_NOVAMENTE
+    return CANCELAR
 
 
 def mostrar_erro(parent: QWidget, mensagem: str, titulo: str = "Erro") -> None:

@@ -1765,3 +1765,36 @@ def test_main_window_verificacao_manual_com_novidade_baixa_ao_aceitar(banco_com_
     janela._ao_verificacao_manual_achar({"versao": "99.0.0", "notas": "", "url_download": "https://exemplo/Setup.exe"})
 
     assert chamadas_download == ["https://exemplo/Setup.exe"]
+
+
+def test_main_window_renovar_trava_chama_atualizar_atividade_quando_trava_e_nossa(banco_com_dados, monkeypatch):
+    usuario = auth.login(banco_com_dados, "admin", "senha123")
+    janela = MainWindow(banco_com_dados, usuario, "teste.abepdb")
+
+    monkeypatch.setattr("ui.main_window.lock.ainda_e_minha", lambda caminho: True)
+    chamadas = []
+    monkeypatch.setattr("ui.main_window.lock.atualizar_atividade", lambda caminho: chamadas.append(caminho))
+    avisos = []
+    monkeypatch.setattr("ui.main_window.mostrar_info", lambda parent, mensagem, titulo=None: avisos.append(mensagem))
+
+    janela._renovar_trava()
+
+    assert chamadas == ["teste.abepdb"]
+    assert avisos == []
+
+
+def test_main_window_renovar_trava_avisa_uma_vez_quando_trava_foi_perdida(banco_com_dados, monkeypatch):
+    usuario = auth.login(banco_com_dados, "admin", "senha123")
+    janela = MainWindow(banco_com_dados, usuario, "teste.abepdb")
+
+    monkeypatch.setattr("ui.main_window.lock.ainda_e_minha", lambda caminho: False)
+    chamadas = []
+    monkeypatch.setattr("ui.main_window.lock.atualizar_atividade", lambda caminho: chamadas.append(caminho))
+    avisos = []
+    monkeypatch.setattr("ui.main_window.mostrar_info", lambda parent, mensagem, titulo=None: avisos.append(mensagem))
+
+    janela._renovar_trava()
+    janela._renovar_trava()  # nao deve avisar de novo na segunda vez
+
+    assert chamadas == []  # trava nao e mais nossa -- nao renova
+    assert len(avisos) == 1

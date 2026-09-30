@@ -76,9 +76,31 @@ class MainWindow(QMainWindow):
         # esta janela estiver aberta -- sem isso, ela seria considerada
         # abandonada depois de LIMITE_INATIVIDADE e outra maquina poderia
         # assumir o banco sem aviso nenhum.
+        self._avisou_trava_perdida = False
         self._temporizador_lock = QTimer(self)
-        self._temporizador_lock.timeout.connect(lambda: lock.atualizar_atividade(self.caminho_banco))
+        self._temporizador_lock.timeout.connect(self._renovar_trava)
         self._temporizador_lock.start(60_000)
+
+    def _renovar_trava(self) -> None:
+        # Se a trava ja nao e mais nossa (ex.: essa sessao ficou tempo
+        # demais sem conseguir renovar e outra maquina assumiu o banco),
+        # nao adianta so renovar silenciosamente -- avisa a pessoa (uma
+        # unica vez) pra ela salvar o que estiver fazendo e fechar logo,
+        # evitando que as duas sessoes acabem escrevendo no mesmo arquivo.
+        if not lock.ainda_e_minha(self.caminho_banco):
+            if not self._avisou_trava_perdida:
+                self._avisou_trava_perdida = True
+                mostrar_info(
+                    self,
+                    "Outra sessão parece ter assumido este banco de dados "
+                    "(provavelmente porque este programa ficou tempo demais "
+                    "sem conseguir renovar sua trava). Para evitar que o "
+                    "OneDrive duplique o arquivo, salve o que estiver "
+                    "fazendo e feche o programa o quanto antes.",
+                    titulo="Banco de dados em uso em outro lugar",
+                )
+            return
+        lock.atualizar_atividade(self.caminho_banco)
 
     # -- montagem ----------------------------------------------------------
 

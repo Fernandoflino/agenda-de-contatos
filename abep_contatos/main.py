@@ -31,8 +31,10 @@ from config import app_config
 from db import connection, lock
 from ui import primeiro_uso
 from ui.dialogs import (
+    CANCELAR,
+    FORCAR_ABERTURA,
     baixar_e_instalar_atualizacao,
-    confirmar_abrir_banco_em_uso,
+    banco_em_uso_dialog,
     mostrar_erro,
     perguntar_atualizacao,
 )
@@ -66,15 +68,29 @@ def _escolher_e_abrir_banco():
 
         app_config.registrar_recente(caminho)
 
-        # Avisa se outra sessao parece estar com esse banco aberto agora
-        # (ver db/lock.py) -- so um aviso de "melhor esforco", nao impede
-        # nada se o usuario decidir continuar mesmo assim.
+        # Bloqueia (nao so avisa) se outra sessao parece estar com esse
+        # banco aberto agora (ver db/lock.py) -- deixar abrir sem querer
+        # junto com outra pessoa e o jeito mais facil do OneDrive duplicar
+        # o arquivo, entao aqui so seguimos adiante se a trava estiver
+        # livre ou se o usuario forcar explicitamente.
         info_lock = lock.adquirir(caminho)
-        if info_lock is not None:
-            if not confirmar_abrir_banco_em_uso(None, info_lock):
-                conn.close()
-                continue
-            lock.adquirir(caminho, forcar=True)
+        cancelado = False
+        while info_lock is not None:
+            escolha = banco_em_uso_dialog(None, info_lock)
+            if escolha == CANCELAR:
+                cancelado = True
+                break
+            if escolha == FORCAR_ABERTURA:
+                lock.adquirir(caminho, forcar=True)
+                break
+            # TENTAR_NOVAMENTE -- tenta assumir a trava de novo; se ainda
+            # estiver ativa, volta pro topo do laco e mostra o dialogo de
+            # novo com os dados (possivelmente atualizados) de quem esta usando
+            info_lock = lock.adquirir(caminho)
+
+        if cancelado:
+            conn.close()
+            continue
 
         return conn, caminho, eh_novo
 
@@ -99,6 +115,12 @@ def main() -> int:
     # padrao do Windows antigo -- e o ponto de partida sobre o qual o nosso
     # style.qss (ui/theme.py) desenha o resto da aparencia personalizada.
     app.setStyle("Fusion")
+    # Aplica o tema padrao antes de mostrar qualquer tela -- nesse ponto
+    # ainda nao existe nenhum banco aberto (e e' dentro dele que mora a
+    # cor/tema escolhidos), entao a tela inicial (LauncherDialog) usaria o
+    # visual "cru" do Qt sem isso. Sera reaplicado com o tema de verdade do
+    # banco assim que um for aberto/criado (ver aplicar_tema mais abaixo).
+    aplicar_tema(app, None)
 
     # Checa se ha uma versao mais nova publicada no GitHub em paralelo com o
     # resto da abertura do programa (tela inicial, login etc.) -- sem

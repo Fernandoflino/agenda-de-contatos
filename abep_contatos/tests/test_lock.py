@@ -112,3 +112,33 @@ def test_atualizar_atividade_nao_faz_nada_se_lock_nao_e_nosso(caminho_banco):
 
     with open(_caminho_lock(caminho_banco), "r", encoding="utf-8") as f:
         assert json.load(f) == dados
+
+
+def test_ainda_e_minha_logo_apos_adquirir(caminho_banco):
+    lock.adquirir(caminho_banco)
+
+    assert lock.ainda_e_minha(caminho_banco) is True
+
+
+def test_ainda_e_minha_false_se_outra_sessao_assumiu(caminho_banco):
+    lock.adquirir(caminho_banco)
+
+    _escrever_lock(caminho_banco)  # outra maquina "forcou" a trava por cima
+
+    assert lock.ainda_e_minha(caminho_banco) is False
+
+
+def test_ainda_e_minha_false_se_nunca_adquiriu(caminho_banco):
+    assert lock.ainda_e_minha(caminho_banco) is False
+
+
+def test_ainda_e_minha_false_se_propria_trava_expirou(caminho_banco):
+    lock.adquirir(caminho_banco)
+    antiga = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    with open(_caminho_lock(caminho_banco), "r", encoding="utf-8") as f:
+        dados = json.load(f)
+    dados["ultima_atividade"] = antiga
+    with open(_caminho_lock(caminho_banco), "w", encoding="utf-8") as f:
+        json.dump(dados, f)
+
+    assert lock.ainda_e_minha(caminho_banco) is False

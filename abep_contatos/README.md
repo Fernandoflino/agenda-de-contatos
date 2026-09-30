@@ -10,6 +10,28 @@ pasta do computador, num pendrive ou numa pasta de rede compartilhada,
 igual ao MMEX (Money Manager Ex). Copiar esse arquivo para outro computador
 com o programa instalado é suficiente para continuar usando os mesmos dados.
 
+### Compartilhar o banco entre várias pessoas (ex.: via OneDrive)
+
+Dá pra guardar o `.abepdb` numa pasta do OneDrive (ou Dropbox/Google Drive)
+pra várias pessoas, em máquinas diferentes, usarem o mesmo banco — mas
+**revezando**, não ao mesmo tempo. Isso porque o OneDrive não é uma pasta de
+rede de verdade: ele sincroniza cópias locais do arquivo aos poucos e não
+sabe fazer merge de um arquivo binário como o SQLite. Se duas pessoas
+escreverem nele ao mesmo tempo, ele cria cópias duplicadas com o nome do
+computador (ex.: `contatos-DESKTOP-ABC.abepdb`), e as alterações de cada uma
+ficam presas em arquivos diferentes.
+
+Pra evitar isso, o programa usa uma trava (`<banco>.abepdb.lock`, guardada do
+lado do arquivo do banco): quando alguém já está com o banco aberto, quem
+tentar abrir o mesmo arquivo em outra máquina vê um aviso de "banco em uso" e
+**não consegue continuar** até a primeira pessoa fechar o programa (ou até a
+trava expirar sozinha, depois de alguns minutos sem atividade — o que
+acontece automaticamente se o programa travar ou fechar sem dar tempo de
+liberar a trava). Existe um botão de "Forçar abertura" pra emergências (ex.:
+trava presa por bug), mas usar ele enquanto a outra pessoa realmente ainda
+está com o banco aberto tem o mesmo risco de duplicação do OneDrive descrito
+acima — só force se tiver certeza de que a outra sessão não está mais ativa.
+
 ## Rodar durante o desenvolvimento (sem instalar nada no Windows)
 
 Pré-requisito: Python 3.12 instalado.

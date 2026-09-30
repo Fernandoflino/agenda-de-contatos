@@ -108,6 +108,18 @@ def adquirir(caminho_banco: str, forcar: bool = False) -> InfoLock | None:
     return None
 
 
+def ainda_e_minha(caminho_banco: str) -> bool:
+    """Diz se a trava deste banco ainda pertence a esta sessao (mesma
+    maquina e usuario do SO) e ainda esta ativa.
+
+    Usado enquanto o banco esta aberto (ver temporizador em
+    ui/main_window.py) pra perceber se outra sessao assumiu o banco --
+    por exemplo, porque nossa trava foi considerada abandonada em algum
+    momento em que a atividade nao conseguiu ser renovada a tempo."""
+    dados = _ler(_caminho_lock(caminho_banco))
+    return dados is not None and _e_desta_sessao(dados) and _esta_ativo(dados)
+
+
 def atualizar_atividade(caminho_banco: str) -> None:
     """Renova a trava desta sessao, pra ela nao ser considerada abandonada.
 
