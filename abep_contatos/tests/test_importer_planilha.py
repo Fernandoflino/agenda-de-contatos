@@ -30,6 +30,23 @@ def test_linha_com_id_existente_atualiza_em_vez_de_duplicar(conn):
     assert todos[0]["EMAIL"] == "ana@novo.com"
 
 
+def test_linha_com_id_em_formato_decimal_do_excel_atualiza_em_vez_de_duplicar(conn):
+    """Excel/openpyxl pode devolver o ID como float (ex.: 12.0) se a celula
+    estiver formatada como numero geral/decimal -- isso nao pode fazer o
+    programa achar que a linha "nao tem ID" e duplicar o contato."""
+    id_ana = records.create_record(conn, "PESSOAS", {"NOME": "Ana"})
+    columns = ["ID", "NOME"]
+    rows = [{"ID": f"{id_ana}.0", "NOME": "Ana Silva"}]
+
+    resumo = importer_planilha.importar_planilha(conn, "PESSOAS", columns, rows)
+
+    assert resumo.criados == 0
+    assert resumo.atualizados == 1
+    todos = records.get_records(conn, "PESSOAS")
+    assert len(todos) == 1
+    assert todos[0]["NOME"] == "Ana Silva"
+
+
 def test_linha_com_id_que_nao_existe_mais_cria_novo_e_avisa(conn):
     columns = ["ID", "NOME"]
     rows = [{"ID": "999", "NOME": "Bia"}]
@@ -114,6 +131,26 @@ def test_empresa_sem_correspondencia_e_criada_e_reaproveitada_na_mesma_importaca
     assert pessoas[0]["ID_EMPRESA"] == pessoas[1]["ID_EMPRESA"] == empresas[0]["ID"]
 
 
+def test_linha_sem_empresa_preenchida_nao_cria_empresa_vazia(conn):
+    """Uma pessoa sem empresa vinculada exporta SIGLA/SIGLA_EMPRESA/EMPRESA
+    em branco -- reimportar isso sem editar nao pode criar uma empresa "vazia"
+    do nada (bug de round-trip: toda pessoa sem empresa viraria dona de uma
+    empresa fantasma em comum)."""
+    columns = ["ID", "NOME", "SIGLA", "SIGLA_EMPRESA", "EMPRESA"]
+    rows = [
+        {"ID": "", "NOME": "Duda", "SIGLA": "", "SIGLA_EMPRESA": "", "EMPRESA": ""},
+        {"ID": "", "NOME": "Elis", "SIGLA": "", "SIGLA_EMPRESA": "", "EMPRESA": ""},
+    ]
+
+    resumo = importer_planilha.importar_planilha(conn, "PESSOAS", columns, rows)
+
+    assert resumo.empresas_criadas == 0
+    assert records.get_records(conn, "EMPRESAS") == []
+    pessoas = records.get_records(conn, "PESSOAS")
+    assert pessoas[0]["ID_EMPRESA"] is None
+    assert pessoas[1]["ID_EMPRESA"] is None
+
+
 def test_categoria_com_lista_separada_por_virgula_vincula_categorias(conn):
     categorias.adicionar_categoria(conn, "Presidentes")
     categorias.adicionar_categoria(conn, "Diretores Tecnicos")
@@ -179,3 +216,18 @@ def test_round_trip_exportar_e_reimportar_sem_editar_nao_muda_nada(conn, tmp_pat
     assert pessoas[0]["NOME"] == "Ana"
     assert pessoas[0]["EMAIL"] == "ana@x.com"
     assert len(records.get_records(conn, "EMPRESAS")) == 1
+
+
+def test_ler_planilha_csv_com_cabecalho_duplicado_nao_perde_a_primeira_coluna(tmp_path):
+    """Duas colunas com o mesmo nome (arquivo editado a mao, ou juntando
+    duas exportacoes) nao podem fazer a segunda apagar silenciosamente o
+    valor da primeira -- mesma protecao que db/importer.py::_ler_cabecalho
+    ja tem pro formato antigo."""
+    caminho = tmp_path / "duplicado.csv"
+    caminho.write_text("NOME,TELEFONE,TELEFONE\nAna,1111,2222\n", encoding="utf-8-sig")
+
+    colunas, linhas = importer_planilha.ler_planilha(str(caminho))
+
+    assert colunas == ["NOME", "TELEFONE", "TELEFONE (2)"]
+    assert linhas[0]["TELEFONE"] == "1111"
+    assert linhas[0]["TELEFONE (2)"] == "2222"

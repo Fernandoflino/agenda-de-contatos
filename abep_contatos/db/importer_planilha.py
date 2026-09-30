@@ -44,12 +44,29 @@ def _valor_celula(v):
     return v
 
 
+def _sem_cabecalho_duplicado(nomes: list[str]) -> list[str]:
+    """Se um titulo de coluna aparecer repetido (ex.: duas colunas
+    "TELEFONE"), a segunda ocorrencia ganha um sufixo " (2)" pra nao apagar
+    silenciosamente o valor da primeira -- mesma regra de
+    db/importer.py::_ler_cabecalho."""
+    vistos: dict[str, int] = {}
+    resultado = []
+    for nome in nomes:
+        if not nome:
+            resultado.append(nome)
+            continue
+        vistos[nome] = vistos.get(nome, 0) + 1
+        resultado.append(nome if vistos[nome] == 1 else f"{nome} ({vistos[nome]})")
+    return resultado
+
+
 def _ler_xlsx(caminho: str) -> tuple[list[str], list[dict]]:
     wb = openpyxl.load_workbook(caminho, data_only=True, read_only=True)
     try:
         ws = wb.active
         linhas_brutas = ws.iter_rows(values_only=True)
-        cabecalho = [str(v).strip() if v is not None else "" for v in next(linhas_brutas, ())]
+        cabecalho_bruto = [str(v).strip() if v is not None else "" for v in next(linhas_brutas, ())]
+        cabecalho = _sem_cabecalho_duplicado(cabecalho_bruto)
         linhas = []
         for linha_bruta in linhas_brutas:
             registro = {c: _valor_celula(v) for c, v in zip(cabecalho, linha_bruta) if c}
@@ -63,7 +80,7 @@ def _ler_xlsx(caminho: str) -> tuple[list[str], list[dict]]:
 def _ler_csv(caminho: str) -> tuple[list[str], list[dict]]:
     with open(caminho, newline="", encoding="utf-8-sig") as f:
         leitor = csv.reader(f)
-        cabecalho = [c.strip() for c in next(leitor, [])]
+        cabecalho = _sem_cabecalho_duplicado([c.strip() for c in next(leitor, [])])
         linhas = []
         for linha_bruta in leitor:
             registro = {c: v.strip() for c, v in zip(cabecalho, linha_bruta) if c}
@@ -91,6 +108,24 @@ class ResumoImportacaoPlanilha:
     empresas_criadas: int = 0
     colunas_novas: list = field(default_factory=list)
     avisos: list = field(default_factory=list)
+
+
+def _interpretar_id(id_bruto: str) -> int | None:
+    """Converte o texto da celula "ID" pro numero inteiro correspondente --
+    o Excel pode devolver um ID como "12.0" (celula formatada como numero
+    geral/decimal em vez de inteiro), que precisa continuar sendo reconhecido
+    como o ID 12 (senao a linha seria tratada como "sem ID" e duplicaria o
+    contato em vez de atualiza-lo)."""
+    if not id_bruto:
+        return None
+    try:
+        return int(id_bruto)
+    except ValueError:
+        pass
+    try:
+        return int(float(id_bruto))
+    except ValueError:
+        return None
 
 
 def _chave_empresa(linha: dict, campos_empresa: list[str]) -> tuple:
@@ -130,7 +165,7 @@ def importar_planilha(conn: sqlite3.Connection, tabela: str, columns: list[str],
             campos_excluidos_de_dados.add("CATEGORIA")
         dados = {c: linha.get(c, "") for c in columns if c != "ID" and c not in campos_excluidos_de_dados}
 
-        if campos_empresa:
+        if campos_empresa and any(str(linha.get(c) or "").strip() for c in campos_empresa):
             chave = _chave_empresa(linha, campos_empresa)
             if chave not in cache_empresas:
                 resumo.empresas_criadas += 1
@@ -143,7 +178,7 @@ def importar_planilha(conn: sqlite3.Connection, tabela: str, columns: list[str],
             if id_empresa is not None:
                 dados["ID_EMPRESA"] = id_empresa
 
-        id_valor = int(id_bruto) if id_bruto.isdigit() else None
+        id_valor = _interpretar_id(id_bruto)
         registro_existente = records.get_record(conn, tabela, id_valor) if id_valor is not None else None
 
         if registro_existente is not None:

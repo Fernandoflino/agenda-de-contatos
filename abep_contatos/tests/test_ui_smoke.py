@@ -1406,6 +1406,36 @@ def test_import_dialog_importar_cria_e_atualiza_registros(banco_com_dados, monke
     assert any(p["NOME"] == "Nova Pessoa" for p in pessoas)
 
 
+def test_import_dialog_erro_ao_aplicar_mostra_mensagem_em_vez_de_crashar(banco_com_dados, monkeypatch, tmp_path):
+    """Um erro na hora de aplicar de verdade (ex.: um nome de coluna invalido
+    que so falha quando tables.add_column roda, ja que a pre-visualizacao
+    nunca cria colunas de verdade) precisa virar uma mensagem de erro pro
+    usuario, igual _selecionar_arquivo ja faz pra erro de leitura do
+    arquivo -- nao pode propagar e derrubar o programa."""
+    from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
+
+    from db import importer_planilha
+
+    caminho = tmp_path / "import.csv"
+    caminho.write_text("ID,NOME\n,Nova Pessoa\n", encoding="utf-8-sig")
+
+    dialogo = ImportDialog(banco_com_dados, "admin", tabela_padrao=PESSOAS)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(caminho), "")))
+    dialogo._selecionar_arquivo()
+
+    def _sempre_falha(*a, **k):
+        raise ValueError("erro simulado")
+
+    monkeypatch.setattr(importer_planilha, "importar_planilha", _sempre_falha)
+    chamadas_erro = []
+    monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: chamadas_erro.append(a) or QMessageBox.Ok))
+
+    dialogo._importar()  # nao pode levantar excecao
+
+    assert len(chamadas_erro) == 1
+    assert dialogo.result() != QDialog.Accepted
+
+
 def test_settings_dialog_constroi(banco_com_dados):
     dialogo = SettingsDialog(banco_com_dados, "admin")
     assert dialogo.campo_nome.text()

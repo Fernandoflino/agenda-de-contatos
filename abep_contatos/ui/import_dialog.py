@@ -131,9 +131,13 @@ class ImportDialog(QDialog):
 
     def _importar(self) -> None:
         tabela = self.combo_tabela.currentText()
-        resumo = importer_planilha.importar_planilha(
-            self.conn, tabela, self._colunas_lidas, self._linhas_lidas, usuario=self.usuario, aplicar=True
-        )
+        try:
+            resumo = importer_planilha.importar_planilha(
+                self.conn, tabela, self._colunas_lidas, self._linhas_lidas, usuario=self.usuario, aplicar=True
+            )
+        except (ValueError, OSError, sqlite3.Error) as erro:
+            mostrar_erro(self, str(erro))
+            return
         mensagem = f"{resumo.criados} registro(s) criado(s), {resumo.atualizados} atualizado(s)."
         if resumo.empresas_criadas:
             mensagem += f"\n{resumo.empresas_criadas} empresa(s) nova(s) criada(s)."
