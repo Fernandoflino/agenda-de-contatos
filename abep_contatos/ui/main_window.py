@@ -42,6 +42,7 @@ from db.tables import get_table_order
 from ui.dashboard_view import DashboardView
 from ui.dialogs import baixar_e_instalar_atualizacao, mostrar_info, perguntar_atualizacao
 from ui.export_dialog import ExportDialog
+from ui.import_dialog import ImportDialog
 from ui.lista_registros_view import ListaRegistrosView
 from ui.settings_dialog import SettingsDialog
 from ui.theme import aplicar_tema, marcar_variante
@@ -168,6 +169,7 @@ class MainWindow(QMainWindow):
         layout_utilitarios.setSpacing(6)
         for texto, funcao in (
             ("Exportar...", self._abrir_exportar),
+            ("Importar...", self._abrir_importar),
             ("Configurações...", self._abrir_configuracoes),
         ):
             botao = QPushButton(texto)
@@ -331,6 +333,17 @@ class MainWindow(QMainWindow):
         # tabela esta selecionada.
         tabela_padrao = tabela_selecionada if tabela_selecionada and tabela_selecionada != _ITEM_PAINEL else PESSOAS
         ExportDialog(self.conn, tabela_padrao=tabela_padrao, parent=self).exec()
+
+    def _abrir_importar(self) -> None:
+        item = self.lista_navegacao.currentItem()
+        tabela_selecionada = item.data(Qt.UserRole) if item else None
+        tabela_padrao = tabela_selecionada if tabela_selecionada and tabela_selecionada != _ITEM_PAINEL else PESSOAS
+        dialogo = ImportDialog(self.conn, self.usuario_logado.usuario, tabela_padrao=tabela_padrao, parent=self)
+        if dialogo.exec():
+            if self._pagina_dashboard is not None:
+                self._pagina_dashboard.marcar_dados_sujos()
+            for pagina in self._paginas_tabelas.values():
+                pagina.marcar_dados_sujos()
 
     def _abrir_configuracoes(self) -> None:
         dialogo = SettingsDialog(self.conn, self.usuario_logado.usuario, parent=self)

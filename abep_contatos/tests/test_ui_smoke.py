@@ -20,6 +20,7 @@ from db.schema import EMPRESAS, PESSOAS
 from ui.dashboard_view import DashboardView
 from ui.export_dialog import ExportDialog
 from ui.historico_dialog import HistoricoDialog
+from ui.import_dialog import ImportDialog
 from ui.launcher_dialog import LauncherDialog
 from ui.lista_registros_view import ListaRegistrosView
 from ui.lixeira_dialog import LixeiraDialog
@@ -1361,6 +1362,48 @@ def test_export_dialog_com_ids_selecionados_trava_tabela(banco_com_dados):
     dialogo = ExportDialog(banco_com_dados, tabela_padrao=PESSOAS, ids_selecionados={1, 2, 3})
     assert not dialogo.combo_tabela.isEnabled()
     assert "3" in dialogo.windowTitle()
+
+
+def test_import_dialog_constroi(banco_com_dados):
+    dialogo = ImportDialog(banco_com_dados, "admin", tabela_padrao=PESSOAS)
+    assert dialogo.combo_tabela.count() > 0
+    assert not dialogo.botao_importar.isEnabled()
+
+
+def test_import_dialog_selecionar_arquivo_mostra_previa_e_habilita_importar(banco_com_dados, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QFileDialog
+
+    from db import exporter
+
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ABC", "EMPRESA": "Empresa ABC"})
+    records.create_record(banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Ana"})
+    colunas, linhas = exporter.montar_exportacao_simples(banco_com_dados, PESSOAS)
+    caminho = tmp_path / "export.csv"
+    exporter.exportar_csv(colunas, linhas, str(caminho))
+
+    dialogo = ImportDialog(banco_com_dados, "admin", tabela_padrao=PESSOAS)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(caminho), "")))
+    dialogo._selecionar_arquivo()
+
+    assert "1 atualizado" in dialogo.rotulo_resumo.text()
+    assert dialogo.botao_importar.isEnabled()
+
+
+def test_import_dialog_importar_cria_e_atualiza_registros(banco_com_dados, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QFileDialog
+
+    columns = ["ID", "NOME"]
+    linhas_csv = "ID,NOME\n,Nova Pessoa\n"
+    caminho = tmp_path / "import.csv"
+    caminho.write_text(linhas_csv, encoding="utf-8-sig")
+
+    dialogo = ImportDialog(banco_com_dados, "admin", tabela_padrao=PESSOAS)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(caminho), "")))
+    dialogo._selecionar_arquivo()
+    dialogo._importar()
+
+    pessoas = records.get_records(banco_com_dados, PESSOAS)
+    assert any(p["NOME"] == "Nova Pessoa" for p in pessoas)
 
 
 def test_settings_dialog_constroi(banco_com_dados):
