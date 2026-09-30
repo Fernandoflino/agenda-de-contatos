@@ -133,6 +133,19 @@ def _chave_empresa(linha: dict, campos_empresa: list[str]) -> tuple:
     return tuple(str(linha.get(c) or "").strip().lower() for c in campos_empresa)
 
 
+def _resumo_alteracoes(dados: dict, registro_existente: dict) -> list[str]:
+    """Lista, campo a campo, o que uma atualizacao vai mudar de verdade
+    (valor antigo -> novo) -- so os campos cujo valor realmente é
+    diferente, pra mostrar pro usuario o que a importacao vai alterar antes
+    de confirmar (em vez de so um "N atualizados")."""
+    alteracoes = []
+    for campo, novo in dados.items():
+        antigo = registro_existente.get(campo)
+        if str(antigo or "") != str(novo or ""):
+            alteracoes.append(f'{campo}: "{antigo or ""}" -> "{novo or ""}"')
+    return alteracoes
+
+
 def _mapear_colunas_para_schema(columns: list[str], existentes: set[str]) -> dict[str, str]:
     """P/ cada cabecalho do arquivo, decide qual coluna real ele representa:
     bate exato -> usa ela; bate so depois de normalizar (espaco/" - " ->
@@ -151,6 +164,25 @@ def _mapear_colunas_para_schema(columns: list[str], existentes: set[str]) -> dic
     return mapa
 
 
+def _avisos_de_colunas_colidindo(columns: list[str], mapa_colunas: dict[str, str]) -> list[str]:
+    """Se duas colunas DIFERENTES do arquivo apontarem pra mesma coluna real
+    (ex.: "DATA DE NASCIMENTO" e "DATA_DE_NASCIMENTO" no mesmo arquivo), so
+    a ultima entra nos dados -- avisa disso em vez de descartar a outra em
+    silencio."""
+    colunas_por_real: dict[str, list[str]] = {}
+    for c in columns:
+        if c != "ID":
+            colunas_por_real.setdefault(mapa_colunas[c], []).append(c)
+    avisos = []
+    for real, origens in colunas_por_real.items():
+        if len(origens) > 1:
+            avisos.append(
+                f'Colunas {", ".join(f"{o!r}" for o in origens)} do arquivo apontam pro mesmo campo '
+                f'"{real}" -- só o valor de {origens[-1]!r} foi usado.'
+            )
+    return avisos
+
+
 def importar_planilha(conn: sqlite3.Connection, tabela: str, columns: list[str], rows: list[dict],
                        usuario: str = "sistema", aplicar: bool = True) -> ResumoImportacaoPlanilha:
     resumo = ResumoImportacaoPlanilha()
@@ -160,6 +192,7 @@ def importar_planilha(conn: sqlite3.Connection, tabela: str, columns: list[str],
     campos_empresa = [c for c in _CAMPOS_EMPRESA if c in columns] if tem_empresa else []
     tem_categoria = tabela == PESSOAS and "CATEGORIA" in columns
     mapa_colunas = _mapear_colunas_para_schema(columns, existentes)
+    resumo.avisos.extend(_avisos_de_colunas_colidindo(columns, mapa_colunas))
 
     for coluna in columns:
         if coluna and coluna != "ID" and coluna not in campos_empresa and mapa_colunas[coluna] not in existentes:
@@ -206,6 +239,10 @@ def importar_planilha(conn: sqlite3.Connection, tabela: str, columns: list[str],
 
         if registro_existente is not None:
             id_final = id_valor
+            alteracoes = _resumo_alteracoes(dados, registro_existente)
+            if alteracoes:
+                rotulo = dados.get("NOME") or registro_existente.get("NOME") or f"ID {id_valor}"
+                resumo.avisos.append(f'{rotulo} (ID {id_valor}): ' + "; ".join(alteracoes))
             if aplicar:
                 records.update_record(conn, tabela, id_valor, dados, usuario=usuario)
             resumo.atualizados += 1

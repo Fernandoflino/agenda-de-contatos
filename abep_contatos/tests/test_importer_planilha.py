@@ -30,6 +30,35 @@ def test_linha_com_id_existente_atualiza_em_vez_de_duplicar(conn):
     assert todos[0]["EMAIL"] == "ana@novo.com"
 
 
+def test_atualizacao_com_campo_alterado_aparece_nos_avisos(conn):
+    """A pre-visualizacao (e o resumo final) precisam mostrar O QUE mudou em
+    cada atualizacao, nao so quantos registros foram atualizados -- senao o
+    usuario nao tem como conferir o que a importacao vai alterar antes de
+    confirmar."""
+    id_ana = records.create_record(conn, "PESSOAS", {"NOME": "Ana", "EMAIL": "ana@old.com"})
+    columns = ["ID", "NOME", "EMAIL"]
+    rows = [{"ID": str(id_ana), "NOME": "Ana", "EMAIL": "ana@novo.com"}]
+
+    resumo = importer_planilha.importar_planilha(conn, "PESSOAS", columns, rows)
+
+    aviso = next(a for a in resumo.avisos if "EMAIL" in a)
+    assert "ana@old.com" in aviso
+    assert "ana@novo.com" in aviso
+    assert "Ana" in aviso
+
+
+def test_atualizacao_sem_nenhum_campo_alterado_nao_gera_aviso(conn):
+    """Reimportar sem editar nada (round-trip) nao pode gerar aviso nenhum
+    de "mudanca" -- nada realmente mudou."""
+    id_ana = records.create_record(conn, "PESSOAS", {"NOME": "Ana", "EMAIL": "ana@x.com"})
+    columns = ["ID", "NOME", "EMAIL"]
+    rows = [{"ID": str(id_ana), "NOME": "Ana", "EMAIL": "ana@x.com"}]
+
+    resumo = importer_planilha.importar_planilha(conn, "PESSOAS", columns, rows)
+
+    assert resumo.avisos == []
+
+
 def test_linha_com_id_em_formato_decimal_do_excel_atualiza_em_vez_de_duplicar(conn):
     """Excel/openpyxl pode devolver o ID como float (ex.: 12.0) se a celula
     estiver formatada como numero geral/decimal -- isso nao pode fazer o
@@ -252,6 +281,22 @@ def test_round_trip_com_coluna_de_espaco_no_nome_nao_cria_coluna_nova(conn, tmp_
     assert resumo.atualizados == 1
     pessoas = records.get_records(conn, "PESSOAS")
     assert pessoas[0]["WHATSAPP ASSESSOR"] == "63 98111-1999"
+
+
+def test_duas_colunas_do_arquivo_apontando_pra_mesma_coluna_real_avisa(conn):
+    """Se o arquivo (editado a mao, ou juntando exportacoes antigas e novas)
+    trouxer TANTO "DATA DE NASCIMENTO" quanto "DATA_DE_NASCIMENTO", as duas
+    apontam pra mesma coluna real -- o programa nao pode simplesmente
+    escolher uma e descartar a outra em silencio, sem avisar o usuario."""
+    id_ana = records.create_record(conn, "PESSOAS", {"NOME": "Ana"})
+    columns = ["ID", "NOME", "DATA DE NASCIMENTO", "DATA_DE_NASCIMENTO"]
+    rows = [{"ID": str(id_ana), "NOME": "Ana", "DATA DE NASCIMENTO": "1980-01-01", "DATA_DE_NASCIMENTO": "1999-12-31"}]
+
+    resumo = importer_planilha.importar_planilha(conn, "PESSOAS", columns, rows)
+
+    assert any("DATA DE NASCIMENTO" in aviso and "DATA_DE_NASCIMENTO" in aviso for aviso in resumo.avisos)
+    atualizada = records.get_record(conn, "PESSOAS", id_ana)
+    assert atualizada["DATA DE NASCIMENTO"] in ("1980-01-01", "1999-12-31")
 
 
 def test_ler_planilha_csv_com_cabecalho_duplicado_nao_perde_a_primeira_coluna(tmp_path):

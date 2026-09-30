@@ -1389,6 +1389,30 @@ def test_import_dialog_selecionar_arquivo_mostra_previa_e_habilita_importar(banc
     assert dialogo.botao_importar.isEnabled()
 
 
+def test_import_dialog_previa_mostra_o_que_vai_mudar_em_cada_atualizacao(banco_com_dados, monkeypatch, tmp_path):
+    """A pre-visualizacao precisa listar o valor antigo -> novo de cada
+    campo alterado, nao so a contagem de "N atualizados" -- pra quem esta
+    importando conferir o que vai mudar antes de confirmar."""
+    from PySide6.QtWidgets import QFileDialog
+
+    id_empresa = records.create_record(banco_com_dados, EMPRESAS, {"SIGLA": "ABC", "EMPRESA": "Empresa ABC"})
+    id_ana = records.create_record(
+        banco_com_dados, PESSOAS, {"ID_EMPRESA": id_empresa, "NOME": "Ana", "EMAIL": "ana@old.com"}
+    )
+
+    caminho = tmp_path / "import.csv"
+    caminho.write_text(f"ID,NOME,EMAIL\n{id_ana},Ana,ana@novo.com\n", encoding="utf-8-sig")
+
+    dialogo = ImportDialog(banco_com_dados, "admin", tabela_padrao=PESSOAS)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(caminho), "")))
+    dialogo._selecionar_arquivo()
+
+    textos_avisos = [dialogo.lista_avisos.item(i).text() for i in range(dialogo.lista_avisos.count())]
+    aviso = next(t for t in textos_avisos if "EMAIL" in t)
+    assert "ana@old.com" in aviso
+    assert "ana@novo.com" in aviso
+
+
 def test_import_dialog_importar_cria_e_atualiza_registros(banco_com_dados, monkeypatch, tmp_path):
     from PySide6.QtWidgets import QFileDialog
 

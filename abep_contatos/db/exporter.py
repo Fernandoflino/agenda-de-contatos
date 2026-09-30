@@ -54,6 +54,22 @@ def nome_coluna_arquivo(nome: str) -> str:
     return nome.replace(" - ", "_").replace(" ", "_")
 
 
+def _cabecalho_arquivo(columns: list[str]) -> list[str]:
+    """Monta a linha de cabecalho pro arquivo: aplica nome_coluna_arquivo()
+    em cada coluna e desambigua colisoes -- duas colunas DIFERENTES que
+    normalizam pro mesmo texto (ex.: "Diretor - Tecnico" e "Diretor
+    Tecnico" viram as duas "Diretor_Tecnico") ganham um sufixo numerico,
+    senao o arquivo teria duas colunas com o mesmo titulo e uma ferramenta
+    de mala direta so enxergaria uma delas."""
+    vistos: dict[str, int] = {}
+    resultado = []
+    for c in columns:
+        nome = nome_coluna_arquivo(c)
+        vistos[nome] = vistos.get(nome, 0) + 1
+        resultado.append(nome if vistos[nome] == 1 else f"{nome}_{vistos[nome]}")
+    return resultado
+
+
 def _valor_celula(valor):
     """Converte um valor pro formato de uma celula de planilha -- uma lista
     (ex.: CATEGORIAS, que uma pessoa pode ter varias) vira texto juntando os
@@ -240,7 +256,7 @@ def exportar_xlsx(columns: list[str], rows: list[dict], caminho: str) -> None:
         raise ValueError("Nenhum registro para exportar.")
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.append([nome_coluna_arquivo(c) for c in columns])
+    ws.append(_cabecalho_arquivo(columns))
     for r in rows:
         ws.append([r.get(c, "") for c in columns])
     wb.save(caminho)
@@ -255,6 +271,6 @@ def exportar_csv(columns: list[str], rows: list[dict], caminho: str) -> None:
     # reconhecer acentos corretamente ao abrir o CSV no Windows.
     with open(caminho, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f, quoting=csv.QUOTE_ALL)
-        writer.writerow([nome_coluna_arquivo(c) for c in columns])
+        writer.writerow(_cabecalho_arquivo(columns))
         for r in rows:
             writer.writerow([r.get(c, "") for c in columns])

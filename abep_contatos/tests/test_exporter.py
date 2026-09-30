@@ -263,3 +263,19 @@ def test_exportar_mesclado_troca_traco_por_underscore_no_cabecalho(conn, tmp_pat
     primeira_linha = caminho.read_text(encoding="utf-8-sig").splitlines()[0]
     assert "Presidente_NOME" in primeira_linha
     assert "Presidente - NOME" not in primeira_linha
+
+
+def test_exportar_csv_desambigua_colunas_que_colidem_apos_normalizar(tmp_path):
+    """"Diretor - Tecnico" e "Diretor Tecnico" sao colunas DIFERENTES, mas
+    as duas normalizam pro mesmo texto ("Diretor_Tecnico") -- o arquivo nao
+    pode ter duas colunas com o mesmo titulo (uma ferramenta de mala direta
+    so enxergaria uma das duas, perdendo a outra silenciosamente)."""
+    columns = ["Diretor - Tecnico", "Diretor Tecnico"]
+    rows = [{"Diretor - Tecnico": "A", "Diretor Tecnico": "B"}]
+
+    caminho = tmp_path / "colisao.csv"
+    exporter.exportar_csv(columns, rows, str(caminho))
+
+    primeira_linha = caminho.read_text(encoding="utf-8-sig").splitlines()[0]
+    titulos = [t.strip('"') for t in primeira_linha.split(",")]
+    assert titulos == ["Diretor_Tecnico", "Diretor_Tecnico_2"]
