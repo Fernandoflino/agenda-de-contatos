@@ -102,6 +102,23 @@ def definir_versao_ignorada(versao: str) -> None:
     _salvar(dados)
 
 
+def tema_lembrado(tema_padrao: str, cor_padrao: str) -> tuple[str, str]:
+    """Ultimo tema/cor de destaque aplicados com sucesso, de QUALQUER banco
+    aberto antes neste computador -- usado so pra tela inicial (antes de
+    escolher/abrir um banco, quando ainda nao ha nenhuma cor/tema pra ler)
+    nao aparecer com uma aparencia "crua", diferente do resto do programa.
+    Se nunca foi guardado nada ainda, devolve os padroes passados."""
+    dados = _carregar()
+    return dados.get("tema", tema_padrao), dados.get("cor_destaque", cor_padrao)
+
+
+def lembrar_tema(tema: str, cor_destaque: str) -> None:
+    dados = _carregar()
+    dados["tema"] = tema
+    dados["cor_destaque"] = cor_destaque
+    _salvar(dados)
+
+
 def remover_recente(caminho: str) -> None:
     """Tira um caminho da lista de recentes (ex.: usuario clicou em "remover
     da lista" na tela inicial)."""

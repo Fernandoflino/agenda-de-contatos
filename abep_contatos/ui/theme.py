@@ -18,6 +18,7 @@ import sqlite3
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QPushButton
 
+from config import app_config
 from db import settings
 
 _CAMINHO_QSS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources", "style.qss")
@@ -76,8 +77,21 @@ def _cor_contraste(cor_hex: str) -> str:
     return "#0f172a" if luminancia > 0.6 else "white"
 
 
-def aplicar_tema(app: QApplication, conn: sqlite3.Connection) -> None:
-    branding = settings.obter_branding(conn)
+def aplicar_tema(app: QApplication, conn: sqlite3.Connection | None) -> None:
+    """Aplica o tema visual. `conn` pode ser None (tela inicial, antes de
+    qualquer banco ser aberto/criado) -- nesse caso usa o ultimo tema/cor
+    lembrados de um banco aberto anteriormente neste computador (ou os
+    padroes de db/settings.py, na primeiríssima vez), pra essa tela nao
+    aparecer com uma aparencia "crua", diferente do resto do programa."""
+    if conn is not None:
+        branding = settings.obter_branding(conn)
+        app_config.lembrar_tema(branding.tema, branding.cor_destaque)
+    else:
+        tema, cor_destaque = app_config.tema_lembrado(settings.TEMA_PADRAO, settings.COR_PADRAO)
+        branding = settings.Branding(
+            nome=settings.NOME_PADRAO, cor_destaque=cor_destaque,
+            logo=None, logo_mime=None, tema=tema,
+        )
     paleta = _PALETA_ESCURA if branding.tema == settings.TEMA_ESCURO else _PALETA_CLARA
 
     with open(_CAMINHO_QSS, "r", encoding="utf-8") as f:
