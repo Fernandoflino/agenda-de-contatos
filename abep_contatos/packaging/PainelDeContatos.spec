@@ -49,7 +49,10 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # upx=False: o UPX "espreme" o programa pra ficar menor, mas esse truque
+    # e muito usado por virus, entao os antivirus desconfiam. Desligado, o
+    # instalador fica um pouco maior mas e bem menos barrado.
+    upx=False,
     # console=False esconde a janela preta de "terminal" -- o programa e
     # feito pra abrir so a interface grafica, como qualquer app do Windows.
     console=False,
@@ -73,7 +76,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,  # ver comentario acima (antivirus)
     upx_exclude=[],
     name="PainelDeContatos",
 )
