@@ -7,7 +7,7 @@ logica por tras de cada uma):
 
 - "Simples": escolhe uma tabela, filtra (opcional) e marca quais colunas
   entram -- uma linha por registro. Serve pra quase todo caso de uso.
-- "Mesclado por empresa": so faz sentido pra tabela PESSOAS. Gera uma linha
+- "Exportar Mala Direta": so faz sentido pra tabela PESSOAS. Gera uma linha
   por EMPRESA, com um bloco de colunas pra cada cargo escolhido (ex.:
   Presidente, Diretor Tecnico) -- reconstroi o antigo formato de "mala
   direta" onde cada papel da empresa vira uma coluna diferente.
@@ -19,6 +19,7 @@ import sqlite3
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -27,8 +28,10 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QPlainTextEdit,
     QPushButton,
     QTabWidget,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -85,7 +88,9 @@ class ExportDialog(QDialog):
 
         self.abas = QTabWidget()
         self.abas.addTab(self._criar_aba_simples(), "Simples")
-        self.abas.addTab(self._criar_aba_mesclada(), "Mesclado por empresa")
+        self.abas.addTab(self._criar_aba_mesclada(), "Exportar Mala Direta")
+        self.abas.addTab(self._criar_aba_emails(), "Copiar e-mails")
+        self.abas.currentChanged.connect(self._ao_trocar_aba)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -99,7 +104,9 @@ class ExportDialog(QDialog):
         layout.addWidget(self._criar_secao_fotos())
         layout.addWidget(self.abas, stretch=1)
 
-        botoes = QHBoxLayout()
+        self.widget_botoes = QWidget()
+        botoes = QHBoxLayout(self.widget_botoes)
+        botoes.setContentsMargins(0, 0, 0, 0)
         botoes.setSpacing(8)
         botao_xlsx = QPushButton("Exportar XLSX...")
         botao_xlsx.clicked.connect(lambda: self._exportar("xlsx"))
@@ -108,7 +115,7 @@ class ExportDialog(QDialog):
         botoes.addStretch()
         botoes.addWidget(botao_xlsx)
         botoes.addWidget(botao_csv)
-        layout.addLayout(botoes)
+        layout.addWidget(self.widget_botoes)
 
         self._recarregar_colunas_simples(self.combo_tabela.currentText())
 
@@ -151,6 +158,78 @@ class ExportDialog(QDialog):
             registros = [r for r in registros if categoria in (r.get("CATEGORIAS") or [])]
         imagens.salvar_fotos_via_dialogo(self, registros)
 
+    # -- aba "Copiar e-mails" (so PESSOAS) ----------------------------------
+
+    def _criar_aba_emails(self) -> QWidget:
+        """Escolhe a categoria e mostra, em duas caixas, os e-mails prontos
+        pra colar no programa de e-mail: "Para" (campo EMAIL) e "Copia"
+        (campos CP1 a CP9)."""
+        pagina = QWidget()
+        layout = QVBoxLayout(pagina)
+        layout.setSpacing(8)
+
+        linha = QHBoxLayout()
+        linha.addWidget(QLabel("Categoria:"))
+        self.combo_categoria_emails = QComboBox()
+        self.combo_categoria_emails.currentIndexChanged.connect(self._atualizar_emails)
+        linha.addWidget(self.combo_categoria_emails, stretch=1)
+        layout.addLayout(linha)
+
+        self.caixa_para, self.rotulo_para = self._adicionar_bloco_emails(layout, "Para (EMAIL)")
+        self.caixa_copia, self.rotulo_copia = self._adicionar_bloco_emails(layout, "Cópia (CP1 a CP9)")
+        return pagina
+
+    def _adicionar_bloco_emails(self, layout: QVBoxLayout, titulo: str) -> tuple[QPlainTextEdit, QLabel]:
+        cabecalho = QHBoxLayout()
+        rotulo = QLabel(titulo)
+        cabecalho.addWidget(rotulo, stretch=1)
+        botao = QPushButton("Copiar")
+        cabecalho.addWidget(botao)
+        layout.addLayout(cabecalho)
+
+        caixa = QPlainTextEdit()
+        caixa.setReadOnly(True)
+        layout.addWidget(caixa, stretch=1)
+
+        def copiar() -> None:
+            QApplication.clipboard().setText(caixa.toPlainText())
+            QToolTip.showText(botao.mapToGlobal(botao.rect().bottomLeft()), "Copiado!", botao)
+
+        botao.clicked.connect(copiar)
+        return caixa, rotulo
+
+    def _recarregar_secao_emails(self, tabela: str) -> None:
+        """A aba so existe pra PESSOAS (e-mails ficam nessa tabela)."""
+        eh_pessoas = tabela == PESSOAS
+        indice_aba = self.abas.count() - 1
+        self.abas.setTabVisible(indice_aba, eh_pessoas)
+        if not eh_pessoas:
+            return
+        atual = self.combo_categoria_emails.currentText()
+        self.combo_categoria_emails.blockSignals(True)
+        self.combo_categoria_emails.clear()
+        self.combo_categoria_emails.addItem(_CATEGORIA_TODAS)
+        self.combo_categoria_emails.addItems(categorias.listar_categorias(self.conn))
+        indice = self.combo_categoria_emails.findText(atual)
+        self.combo_categoria_emails.setCurrentIndex(indice if indice >= 0 else 0)
+        self.combo_categoria_emails.blockSignals(False)
+        self._atualizar_emails()
+
+    def _atualizar_emails(self) -> None:
+        categoria = self.combo_categoria_emails.currentText()
+        registros = records.get_records(self.conn, PESSOAS)
+        if categoria and categoria != _CATEGORIA_TODAS:
+            registros = [r for r in registros if categoria in (r.get("CATEGORIAS") or [])]
+        para, copia = exporter.montar_listas_email(registros)
+        self.caixa_para.setPlainText("; ".join(para))
+        self.caixa_copia.setPlainText("; ".join(copia))
+        self.rotulo_para.setText(f"Para (EMAIL) — {len(para)} e-mail(s)")
+        self.rotulo_copia.setText(f"Cópia (CP1 a CP9) — {len(copia)} e-mail(s)")
+
+    def _ao_trocar_aba(self, indice: int) -> None:
+        # Nessa aba nao ha arquivo pra exportar: esconde os botoes de baixo.
+        self.widget_botoes.setVisible(indice != self.abas.count() - 1)
+
     # -- aba "Simples" -------------------------------------------------
 
     def _criar_aba_simples(self) -> QWidget:
@@ -178,6 +257,7 @@ class ExportDialog(QDialog):
         if not tabela:
             return
         self._recarregar_secao_fotos(tabela)
+        self._recarregar_secao_emails(tabela)
         colunas, _ = exporter.colunas_exportaveis(self.conn, tabela)
         self.lista_colunas_simples.clear()
         for texto in colunas:
@@ -213,7 +293,7 @@ class ExportDialog(QDialog):
         self.campo_filtro_valor.setCurrentText(atual)
         self.campo_filtro_valor.blockSignals(False)
 
-    # -- aba "Mesclado por empresa" -------------------------------------
+    # -- aba "Exportar Mala Direta" -------------------------------------
 
     def _criar_aba_mesclada(self) -> QWidget:
         pagina = QWidget()

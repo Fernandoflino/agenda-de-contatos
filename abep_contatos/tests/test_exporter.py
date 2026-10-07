@@ -279,3 +279,13 @@ def test_exportar_csv_desambigua_colunas_que_colidem_apos_normalizar(tmp_path):
     primeira_linha = caminho.read_text(encoding="utf-8-sig").splitlines()[0]
     titulos = [t.strip('"') for t in primeira_linha.split(",")]
     assert titulos == ["Diretor_Tecnico", "Diretor_Tecnico_2"]
+
+
+def test_montar_listas_email_separa_para_e_copia_sem_repetir():
+    registros = [
+        {"EMAIL": "a@x.com", "CP1": "c@x.com", "CP2": "telefone", "CP3": "A@x.com"},
+        {"EMAIL": "b@x.com; a@x.com", "CP1": "", "CP2": "d@x.com, c@x.com"},
+    ]
+    para, copia = exporter.montar_listas_email(registros)
+    assert para == ["a@x.com", "b@x.com"]
+    assert copia == ["c@x.com", "d@x.com"]

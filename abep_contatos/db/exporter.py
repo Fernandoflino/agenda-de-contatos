@@ -249,6 +249,35 @@ def montar_exportacao_mesclada(conn: sqlite3.Connection, tabela_pessoas: str,
     return columns, rows
 
 
+def montar_listas_email(registros: list[dict]) -> tuple[list[str], list[str]]:
+    """Separa os e-mails das pessoas em duas listas: a dos destinatarios
+    (coluna EMAIL) e a das copias (colunas CP1 a CP9, todas juntas).
+
+    Vazios e repetidos (sem diferenciar maiusculas) ficam de fora, e quem ja
+    esta na primeira lista nao se repete na segunda. Nas colunas CP so entra
+    texto que parece e-mail (tem "@")."""
+    vistos: set[str] = set()
+
+    def _adicionar(destino: list[str], valor, exigir_arroba: bool) -> None:
+        # Uma celula pode ter mais de um e-mail separado por ; ou ,
+        for parte in str(valor or "").replace(",", ";").split(";"):
+            email = parte.strip()
+            if not email or (exigir_arroba and "@" not in email):
+                continue
+            if email.lower() not in vistos:
+                vistos.add(email.lower())
+                destino.append(email)
+
+    para: list[str] = []
+    copia: list[str] = []
+    for r in registros:
+        _adicionar(para, r.get("EMAIL"), False)
+    for r in registros:
+        for i in range(1, 10):
+            _adicionar(copia, r.get(f"CP{i}"), True)
+    return para, copia
+
+
 def exportar_xlsx(columns: list[str], rows: list[dict], caminho: str) -> None:
     """Grava (colunas, linhas) num arquivo .xlsx de verdade, pronto pra abrir
     no Excel/LibreOffice -- a primeira linha do arquivo vira o cabecalho."""
