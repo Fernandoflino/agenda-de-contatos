@@ -21,7 +21,9 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QMessageBox,
     QDialog,
     QFileDialog,
     QGroupBox,
@@ -99,8 +101,16 @@ class LauncherDialog(QDialog):
         botao_remover_recente = QPushButton("Remover da lista")
         marcar_variante(botao_remover_recente, "secundario")
         botao_remover_recente.clicked.connect(self._remover_recente_selecionado)
+        botao_limpar_recentes = QPushButton("Limpar lista")
+        marcar_variante(botao_limpar_recentes, "secundario")
+        botao_limpar_recentes.clicked.connect(self._limpar_recentes)
+        # Tecla Delete na lista tambem remove o item selecionado.
+        QShortcut(QKeySequence(Qt.Key_Delete), self.lista_recentes,
+                  activated=self._remover_recente_selecionado,
+                  context=Qt.WidgetShortcut)
         linha_recentes.addWidget(botao_abrir_recente)
         linha_recentes.addWidget(botao_remover_recente)
+        linha_recentes.addWidget(botao_limpar_recentes)
         layout_recentes.addLayout(linha_recentes)
 
         layout.addWidget(grupo_recentes, stretch=1)
@@ -150,6 +160,7 @@ class LauncherDialog(QDialog):
         if not os.path.isfile(caminho):
             mostrar_erro(self, f'O arquivo "{caminho}" não foi encontrado (pode ter sido movido ou apagado).')
             app_config.remover_recente(caminho)
+            self.lista_recentes.takeItem(self.lista_recentes.row(item))
             return
         self.modo = MODO_ABRIR
         self.caminho_escolhido = caminho
@@ -161,3 +172,17 @@ class LauncherDialog(QDialog):
             return
         app_config.remover_recente(item.data(Qt.UserRole))
         self.lista_recentes.takeItem(self.lista_recentes.row(item))
+
+    def _limpar_recentes(self) -> None:
+        if self.lista_recentes.count() == 0:
+            return
+        resposta = QMessageBox.question(
+            self, "Limpar lista",
+            "Remover todos os caminhos salvos da lista de bancos recentes?\n"
+            "(Os arquivos em si NÃO serão apagados.)",
+        )
+        if resposta != QMessageBox.Yes:
+            return
+        for linha in range(self.lista_recentes.count()):
+            app_config.remover_recente(self.lista_recentes.item(linha).data(Qt.UserRole))
+        self.lista_recentes.clear()
